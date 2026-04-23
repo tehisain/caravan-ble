@@ -23,12 +23,12 @@ Low-power monitoring and automation system for a towable caravan, built around a
 ┌─────────────────────────────────────────────────────────────────┐
 │                        ESP32-S3 HUB                             │
 │                                                                 │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐  │
-│  │ Thread  │ │  BLE    │ │ VE.Dir  │ │  State  │ │  Rules  │  │
-│  │  OTBR   │ │ Dual    │ │ Parser  │ │ Machine │ │ Engine  │  │
-│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └─────────┘  │
-│       │           │           │           │                    │
-└───────┼───────────┼───────────┼───────────┼────────────────────┘
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐    │
+│  │ Thread  │ │  BLE    │ │ VE.Dir  │ │  State  │ │  Rules  │    │
+│  │  OTBR   │ │ Dual    │ │ Parser  │ │ Machine │ │ Engine  │    │
+│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └─────────┘    │
+│       │           │           │           │                     │
+└───────┼───────────┼───────────┼───────────┼─────────────────────┘
         │           │           │           │
         ▼           ▼           ▼           ▼
    ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
@@ -48,8 +48,6 @@ Low-power monitoring and automation system for a towable caravan, built around a
 
 ## Hardware Components
 
-### Already Owned
-
 | Component | Purpose | Interface |
 |-----------|---------|-----------|
 | ESP32-S3 DevKit | Main controller | — |
@@ -64,24 +62,17 @@ Low-power monitoring and automation system for a towable caravan, built around a
 | 13-pin Euro connector | Tow vehicle interface | — |
 | Water level gauge | 0-190Ω resistive | ADC |
 | SimBase data SIM | 4G connectivity | — |
-
-### To Purchase (~€72)
-
-| Component | Purpose | Qty | Est. Cost |
-|-----------|---------|-----|-----------|
-| INA219 | Current/power monitor | 2 | €8 |
-| PC817 | Optocoupler (isolation) | 3 | €2 |
-| HLK-PM01 | 230V AC → 5V DC (detection) | 1 | €5 |
-| AO3401 | P-channel MOSFET (power gate) | 1 | €1 |
-| TXS0102 | Bidirectional level shifter | 1 | €2 |
-| DS18B20 | Waterproof temp sensor | 1 | €3 |
-| Resistors | 4.7kΩ, 100Ω, 1kΩ, 10kΩ | — | €5 |
-| JST-PH connectors | VE.Direct cable, wiring | — | €3 |
-| Prototype PCB | Assembly | 1 | €5 |
-| IKEA TIMMERFLOTTE | Indoor temp/humidity | 1 | €6 |
-| IKEA MYGGBETT | Door/window sensor | 2 | €16 |
-| IKEA KLIPPBOK | Water leak sensor | 1 | €8 |
-| IKEA MYGGSPRAY | Motion sensor | 1 | €8 |
+| INA219 ×2 | Current/power monitor (main bus, fridge) | I2C |
+| PC817 ×3 | Optocoupler isolation (shore/car detect) | GPIO |
+| HLK-PM01 | 230V AC → 5V DC for shore detection | — |
+| AO3401 | P-channel MOSFET, SIM7600 power gate | GPIO |
+| TXS0102 | Bidirectional level shifter (VE.Direct) | — |
+| DS18B20 | Waterproof outdoor temp sensor | 1-Wire |
+| IKEA TIMMERFLOTTE | Indoor temp/humidity | Thread |
+| IKEA MYGGBETT ×2 | Door/window sensor | Thread |
+| IKEA KLIPPBOK | Water leak sensor (built-in siren) | Thread |
+| IKEA MYGGSPRAY | Motion sensor | Thread |
+| Resistors, JST-PH connectors, prototype PCB | Assembly | — |
 
 ---
 
@@ -419,15 +410,14 @@ been created yet.
 
 ## Next Steps
 
-1. **Order components** from shopping list (~€72)
-2. **Flash XIAO nRF52840** with OpenThread RCP firmware
-3. **Build VE.Direct cable** with TXS0102 level shifter
-4. **Wire detection circuits** (shore power, car connection)
-5. **Develop ESP32-S3 firmware** (modular, start with state machine)
-6. **Pair IKEA sensors** to Thread network
-7. **Develop T-Encoder Pro UI** (LVGL gauges and menus)
-8. **Reverse engineer Power Queen BLE** protocol
-9. **Test and iterate**
+1. **Flash XIAO nRF52840** with OpenThread RCP firmware
+2. **Build VE.Direct cable** with TXS0102 level shifter
+3. **Wire detection circuits** (shore power, car connection)
+4. **Develop ESP32-S3 firmware** (modular, start with state machine)
+5. **Pair IKEA sensors** to Thread network
+6. **Develop T-Encoder Pro UI** (LVGL gauges and menus)
+7. **Port Power Queen BLE protocol** to C (spec in [`docs/protocols/powerqueen_bms.md`](docs/protocols/powerqueen_bms.md))
+8. **Test and iterate**
 
 ---
 
