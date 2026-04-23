@@ -1,0 +1,162 @@
+---
+title: Caravan Automation System Architecture
+---
+flowchart TB
+    %% ===== POWER SOURCES =====
+    subgraph POWER["⚡ Power Sources"]
+        SHORE["🔌 230V Shore Power"]
+        CAR["🚗 13-Pin Tow Connector<br/>Pin 10 (Ignition)"]
+        SOLAR["☀️ Solar Panel"]
+        BATTERY["🔋 Power Queen 100Ah<br/>LiFePO4 + BLE BMS"]
+    end
+
+    %% ===== POWER CONVERSION & DETECTION =====
+    subgraph POWER_CONV["Power Conversion & Detection"]
+        SMP["Dometic SMP 301-01<br/>230V AC → 12V DC"]
+        MPPT["Victron MPPT 75/15<br/>Solar Charge Controller"]
+        IP65["Victron IP65 12V 25A<br/>Shore Charger"]
+        
+        subgraph DETECT["Detection Circuits"]
+            SHORE_DET["PC817 + HLK-PM01<br/>Shore Detect → GPIO17"]
+            CAR_DET["PC817 + Divider<br/>Car Detect → GPIO18"]
+        end
+    end
+
+    %% ===== MAIN CONTROLLER =====
+    subgraph ESP32["🎛️ ESP32-S3 Main Controller"]
+        direction TB
+        
+        subgraph INTERFACES["Hardware Interfaces"]
+            UART1["UART1<br/>GPIO1/2"]
+            UART2["UART2<br/>GPIO5/6"]
+            UART_SW["SW UART<br/>GPIO7/8"]
+            I2C["I2C Bus<br/>GPIO3/4"]
+            ADC["ADC<br/>GPIO33"]
+            ONEWIRE["1-Wire<br/>GPIO21"]
+            GPIO_IN["GPIO Inputs<br/>17, 18"]
+            GPIO_OUT["GPIO Outputs<br/>19, 20"]
+            USB_HOST["USB Host"]
+            BLE_INT["BLE Radio"]
+        end
+        
+        subgraph SOFTWARE["Software Modules"]
+            OTBR["Thread OTBR<br/>Border Router"]
+            STATE["State Machine<br/>OFFGRID│CAMPSITE<br/>TOWING│ARRIVED"]
+            VEDIRECT["VE.Direct<br/>Parser"]
+            POWER_MON["Power<br/>Monitor"]
+            BLE_STACK["BLE Stack<br/>Central + Peripheral"]
+            SMS_HANDLER["SMS/GPS<br/>Handler"]
+            RULES["Automation<br/>Rules Engine"]
+            ALERTS["Alert<br/>Thresholds"]
+        end
+    end
+
+    %% ===== THREAD RADIO =====
+    subgraph THREAD_RADIO["📡 Thread Radio"]
+        XIAO["XIAO nRF52840 Plus<br/>Thread RCP<br/>802.15.4 Radio"]
+    end
+
+    %% ===== THREAD SENSOR NETWORK =====
+    subgraph THREAD_NET["🏠 Thread Sensor Network (IKEA)"]
+        direction LR
+        TIMMER["TIMMERFLOTTE<br/>Indoor Temp/Humidity"]
+        MYGG1["MYGGBETT #1<br/>Main Door"]
+        MYGG2["MYGGBETT #2<br/>Storage Door"]
+        KLIPP["KLIPPBOK<br/>Water Leak"]
+        SPRAY["MYGGSPRAY<br/>Motion Sensor"]
+    end
+
+    %% ===== I2C DEVICES =====
+    subgraph I2C_DEV["I²C Devices"]
+        INA_MAIN["INA219 @ 0x40<br/>Main Bus Current"]
+        INA_FRIDGE["INA219 @ 0x41<br/>Fridge Current"]
+        MPU["MPU6500 @ 0x68<br/>Gyro/Accelerometer"]
+    end
+
+    %% ===== WIRED SENSORS =====
+    subgraph WIRED["🌡️ Wired Sensors"]
+        DS18["DS18B20<br/>Outdoor Temp<br/>(waterproof)"]
+        WATER["Water Tank Gauge<br/>0-190Ω Resistive"]
+    end
+
+    %% ===== PERIPHERALS =====
+    subgraph PERIPH["📱 Peripherals"]
+        TENCODER["T-Encoder Pro<br/>AMOLED Display<br/>Rotary Encoder<br/>Touch + Buzzer"]
+        SIM7600["SIM7600SA<br/>4G LTE + GPS<br/>(Power Gated)"]
+        BUZZER["Buzzer<br/>PWM Audio"]
+    end
+
+    %% ===== EXTERNAL =====
+    subgraph EXTERNAL["🌐 External"]
+        PHONE["📱 Phone App<br/>(BLE)"]
+        SMS["📨 SMS<br/>Status & Alerts"]
+    end
+
+    %% ===== POWER CONNECTIONS =====
+    SHORE --> SMP
+    SHORE --> IP65
+    SMP --> SHORE_DET
+    CAR --> CAR_DET
+    SOLAR --> MPPT
+    MPPT --> BATTERY
+    IP65 --> BATTERY
+    BATTERY -.->|BLE| BLE_INT
+
+    %% ===== DETECTION TO ESP32 =====
+    SHORE_DET --> GPIO_IN
+    CAR_DET --> GPIO_IN
+
+    %% ===== VICTRON CONNECTION =====
+    MPPT -->|VE.Direct<br/>TXS0102 Level Shift| UART2
+
+    %% ===== THREAD CONNECTIONS =====
+    UART1 <-->|460800 baud| XIAO
+    XIAO <-.->|802.15.4| TIMMER
+    XIAO <-.->|802.15.4| MYGG1
+    XIAO <-.->|802.15.4| MYGG2
+    XIAO <-.->|802.15.4| KLIPP
+    XIAO <-.->|802.15.4| SPRAY
+
+    %% ===== I2C CONNECTIONS =====
+    I2C <--> INA_MAIN
+    I2C <--> INA_FRIDGE
+    I2C <--> MPU
+
+    %% ===== WIRED SENSOR CONNECTIONS =====
+    ONEWIRE <--> DS18
+    ADC <--> WATER
+
+    %% ===== PERIPHERAL CONNECTIONS =====
+    UART_SW <-->|JSON Protocol| TENCODER
+    USB_HOST <-->|AT Commands| SIM7600
+    GPIO_OUT -->|P-FET Gate| SIM7600
+    GPIO_OUT -->|PWM| BUZZER
+
+    %% ===== EXTERNAL CONNECTIONS =====
+    BLE_INT <-.->|GATT| PHONE
+    SIM7600 <-.->|4G| SMS
+
+    %% ===== SOFTWARE CONNECTIONS =====
+    UART1 --- OTBR
+    UART2 --- VEDIRECT
+    I2C --- POWER_MON
+    GPIO_IN --- STATE
+    BLE_INT --- BLE_STACK
+    USB_HOST --- SMS_HANDLER
+
+    %% ===== STYLING =====
+    classDef power fill:#ffeb3b,stroke:#f57f17,color:#000
+    classDef esp32 fill:#1565c0,stroke:#0d47a1,color:#fff
+    classDef thread fill:#4caf50,stroke:#2e7d32,color:#fff
+    classDef sensor fill:#ff9800,stroke:#e65100,color:#000
+    classDef peripheral fill:#9c27b0,stroke:#6a1b9a,color:#fff
+    classDef external fill:#00bcd4,stroke:#006064,color:#000
+    classDef detect fill:#f44336,stroke:#b71c1c,color:#fff
+
+    class SHORE,CAR,SOLAR,BATTERY,SMP,MPPT,IP65 power
+    class ESP32,INTERFACES,SOFTWARE,UART1,UART2,UART_SW,I2C,ADC,ONEWIRE,GPIO_IN,GPIO_OUT,USB_HOST,BLE_INT,OTBR,STATE,VEDIRECT,POWER_MON,BLE_STACK,SMS_HANDLER,RULES,ALERTS esp32
+    class XIAO,THREAD_NET,TIMMER,MYGG1,MYGG2,KLIPP,SPRAY thread
+    class I2C_DEV,INA_MAIN,INA_FRIDGE,MPU,DS18,WATER sensor
+    class TENCODER,SIM7600,BUZZER peripheral
+    class PHONE,SMS external
+    class SHORE_DET,CAR_DET,DETECT detect

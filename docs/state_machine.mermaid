@@ -1,0 +1,81 @@
+---
+title: Caravan Automation - State Machine & Data Flows
+---
+
+%% ===== STATE MACHINE =====
+stateDiagram-v2
+    [*] --> OFFGRID: Boot
+
+    OFFGRID --> CAMPSITE: Shore ON
+    OFFGRID --> TOWING: Car ON
+    
+    CAMPSITE --> OFFGRID: Shore OFF
+    CAMPSITE --> ARRIVED: Car ON
+    
+    TOWING --> OFFGRID: Car OFF
+    TOWING --> ARRIVED: Shore ON
+    
+    ARRIVED --> CAMPSITE: Car OFF
+    ARRIVED --> TOWING: Shore OFF
+
+    state OFFGRID {
+        [*] --> DeepSleep
+        DeepSleep --> Wake: Timer/Event
+        Wake --> ProcessSensors
+        ProcessSensors --> CheckAlerts
+        CheckAlerts --> DeepSleep: No alerts
+        CheckAlerts --> SendSMS: Alert triggered
+        SendSMS --> DeepSleep
+    }
+
+    state CAMPSITE {
+        [*] --> ActiveMonitor
+        ActiveMonitor --> UpdateDisplay
+        UpdateDisplay --> ActiveMonitor
+    }
+
+    state TOWING {
+        [*] --> GPSTracking
+        GPSTracking --> SwayMonitor
+        SwayMonitor --> StabilityCheck
+        StabilityCheck --> GPSTracking: Stable
+        StabilityCheck --> BuzzerAlert: Excessive sway
+        BuzzerAlert --> GPSTracking
+    }
+
+    state ARRIVED {
+        [*] --> LevelingMode
+        LevelingMode --> DisplayPitchRoll
+        DisplayPitchRoll --> CheckLevel
+        CheckLevel --> LevelingMode: Not level
+        CheckLevel --> LevelOK: Level achieved
+        LevelOK --> [*]
+    }
+
+    note right of OFFGRID
+        GPIO17: HIGH (no shore)
+        GPIO18: HIGH (no car)
+        Max power saving
+        SMS alerts only
+    end note
+
+    note right of CAMPSITE
+        GPIO17: LOW (shore connected)
+        GPIO18: HIGH (no car)
+        Full comfort mode
+        Display always on
+    end note
+
+    note right of TOWING
+        GPIO17: HIGH (no shore)
+        GPIO18: LOW (car connected)
+        GPS active
+        Sway detection
+    end note
+
+    note right of ARRIVED
+        GPIO17: LOW (shore connected)
+        GPIO18: LOW (car connected)
+        Leveling assistance
+        Transition state
+    end note
