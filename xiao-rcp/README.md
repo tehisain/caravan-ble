@@ -79,13 +79,17 @@ xiao-rcp/
 ├── prj.conf                           # Kconfig overlay (empty today)
 ├── boards/
 │   └── xiao_ble_nrf52840.overlay      # Devicetree overlay (empty today)
-├── .gitignore                         # Ignores build/, root-level UF2, vendor tools
+├── .gitignore                         # Ignores build/ and root-level UF2
 ├── build/                             # (gitignored) west build output
-├── uf2conv.py                         # (gitignored) MS UF2 converter, fetched by setup
 └── xiao-rcp.uf2                       # (gitignored) latest build output
 ```
 
-The overlay and `prj.conf` are intentionally empty — the ncs coprocessor
-sample's defaults (UART0 on P1.11/P1.12, 1 Mbit/s, OpenThread RCP mode)
-already match our hardware and wiring plan. Keeping the files in place
-means future tweaks are a one-line change, not a new file.
+The overlay designates `uart0` as the OpenThread Spinel transport via
+`chosen { zephyr,ot-uart = &uart0; }` — the stock `xiao_ble` board file
+doesn't set this because it isn't normally a Thread target. Everything else
+(UART pins P1.11/P1.12, baud reconfigured to 1 Mbit/s at runtime,
+`CONFIG_OPENTHREAD_COPROCESSOR=y`) comes from the ncs sample defaults.
+
+Zephyr's sysbuild produces a UF2 directly, with the correct Adafruit
+family ID (`0xADA52840`) and bootloader offset (`0x27000`) — no
+`uf2conv.py` post-processing step is needed.
