@@ -24,6 +24,10 @@ if [ ! -d "$SAMPLE" ]; then
   exit 1
 fi
 
+# west build is a workspace extension command — it must be invoked from inside
+# the ncs workspace so it can discover the manifest. Output path stays absolute.
+cd "$NCS_DIR"
+
 west build \
   -b xiao_ble/nrf52840 \
   -p always \
@@ -33,20 +37,24 @@ west build \
   -DEXTRA_DTC_OVERLAY_FILE="$REPO_ROOT/xiao-rcp/boards/xiao_ble_nrf52840.overlay" \
   -DEXTRA_CONF_FILE="$REPO_ROOT/xiao-rcp/prj.conf"
 
-HEX="$BUILD_DIR/zephyr/zephyr.hex"
-if [ ! -f "$HEX" ]; then
-  echo "error: build succeeded but $HEX not produced" >&2
+# ncs sysbuild puts the linked firmware under coprocessor/zephyr/ and
+# generates a matching UF2 directly (start offset 0x27000 = after the
+# Adafruit bootloader). No post-processing with uf2conv.py is needed.
+ELF="$BUILD_DIR/coprocessor/zephyr/zephyr.elf"
+UF2_SRC="$BUILD_DIR/coprocessor/zephyr/zephyr.uf2"
+if [ ! -f "$ELF" ]; then
+  echo "error: build succeeded but $ELF not produced" >&2
   exit 1
 fi
 
-echo "build ok: $HEX"
+echo "build ok: $ELF"
 
 if [ "${1:-}" = "--uf2" ]; then
+  if [ ! -f "$UF2_SRC" ]; then
+    echo "error: sysbuild did not produce $UF2_SRC" >&2
+    exit 1
+  fi
   UF2_OUT="$REPO_ROOT/xiao-rcp/xiao-rcp.uf2"
-  python3 "$REPO_ROOT/xiao-rcp/uf2conv.py" \
-    --family 0xADA52840 \
-    --convert \
-    --output "$UF2_OUT" \
-    "$HEX"
-  echo "uf2 ok: $UF2_OUT"
+  cp "$UF2_SRC" "$UF2_OUT"
+  echo "uf2 ok: $UF2_OUT ($(wc -c <"$UF2_OUT" | tr -d ' ') bytes)"
 fi
