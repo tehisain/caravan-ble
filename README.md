@@ -80,7 +80,7 @@ Low-power monitoring and automation system for a towable caravan, built around a
 
 | GPIO | Function | Direction | Protocol | Notes |
 |------|----------|-----------|----------|-------|
-| 1 | XIAO nRF52840 TX | Output | UART1 | Thread RCP, 460800 baud |
+| 1 | XIAO nRF52840 TX | Output | UART1 | Thread RCP, 1 Mbit/s |
 | 2 | XIAO nRF52840 RX | Input | UART1 | |
 | 3 | I2C SDA | Bidir | I2C | INA219 ×2, MPU6500 |
 | 4 | I2C SCL | Output | I2C | 400 kHz |
@@ -250,7 +250,7 @@ Pin 4: +5V ──────────► HV (ref)
 
 | Link | Protocol | Speed | Purpose |
 |------|----------|-------|---------|
-| ESP32 ↔ XIAO | UART1 | 460800 | Thread RCP (HDLC frames) |
+| ESP32 ↔ XIAO | UART1 | 1000000 | Thread RCP (HDLC frames) |
 | ESP32 ↔ Victron | UART2 | 19200 | VE.Direct text protocol |
 | ESP32 ↔ T-Encoder | SW UART | 115200 | JSON status/events |
 | ESP32 ↔ SIM7600 | USB | — | AT commands, GPS NMEA |
