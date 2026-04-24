@@ -1,0 +1,4 @@
+build/
+xiao-rcp.uf2
+uf2conv.py
+uf2families.json
