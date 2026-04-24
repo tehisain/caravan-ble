@@ -1,0 +1,8 @@
+/*
+ * XIAO nRF52840 Plus overlay for OpenThread RCP.
+ *
+ * Intentionally empty: the xiao_ble Zephyr board file already maps UART0
+ * to P1.11 (TX, header D6) / P1.12 (RX, header D7), which matches the
+ * ESP32-S3 wiring in the project README. Add pin remaps or current-speed
+ * overrides here if the wiring changes.
+ */
