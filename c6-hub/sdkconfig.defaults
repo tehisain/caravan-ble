@@ -1,0 +1,18 @@
+# Target chip
+CONFIG_IDF_TARGET="esp32c6"
+
+# Flash size — bring-up board is ESP32-C6FH4 (4 MB embedded). When the
+# 16 MB SuperMini arrives, change this to 16MB and update partitions.csv.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# Custom partition table (single app slot — see partitions.csv)
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# USB-Serial-JTAG console — the SuperMini has no external UART bridge
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# Logging
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_COLORS=y
