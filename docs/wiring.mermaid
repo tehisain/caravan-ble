@@ -2,42 +2,35 @@
 title: Caravan Automation - Physical Wiring & GPIO Pinout
 ---
 flowchart LR
-    subgraph ESP32_S3["ESP32-S3 DevKit"]
+    subgraph C6["ESP32-C6 SuperMini"]
         direction TB
-        
-        subgraph GPIO_LEFT["Left Side"]
-            G1["GPIO1 - UART1 TX"]
-            G2["GPIO2 - UART1 RX"]
-            G3["GPIO3 - I2C SDA"]
-            G4["GPIO4 - I2C SCL"]
-            G5["GPIO5 - UART2 TX"]
-            G6["GPIO6 - UART2 RX"]
-            G7["GPIO7 - SW UART TX"]
-            G8["GPIO8 - SW UART RX"]
+
+        subgraph GPIO_LP["LP I/O (GPIO 0–7)"]
+            G0["GPIO0 - ADC Water Level"]
+            G1["GPIO1 - Shore Detect (in)"]
+            G2["GPIO2 - Car Detect (in)"]
+            G3["GPIO3 - 1-Wire DS18B20"]
+            G4["GPIO4 - I2C SDA"]
+            G5["GPIO5 - I2C SCL"]
+            G6["GPIO6 - LP_UART RX (SIM)"]
+            G7["GPIO7 - LP_UART TX (SIM)"]
         end
-        
-        subgraph GPIO_RIGHT["Right Side"]
-            G17["GPIO17 - Shore Detect"]
-            G18["GPIO18 - Car Detect"]
-            G19["GPIO19 - SIM Power Gate"]
-            G20["GPIO20 - Buzzer PWM"]
-            G21["GPIO21 - 1-Wire Data"]
-            G33["GPIO33 - ADC Water"]
+
+        subgraph GPIO_HP["High-speed I/O"]
+            G8["GPIO8 - SIM Power Gate (out)"]
+            G14["GPIO14 - Reserved (relay)"]
+            G20["GPIO20 - UART1 RX (VE.Direct)"]
+            G21["GPIO21 - UART1 TX (VE.Direct)"]
+            G22["GPIO22 - SW UART TX (T-Encoder)"]
+            G23["GPIO23 - SW UART RX (T-Encoder)"]
         end
-        
+
         subgraph POWER_USB["Power & USB"]
             V33["3.3V"]
             V5["5V"]
             GND["GND"]
-            USB["USB-C"]
+            USB["USB-C (USB-Serial-JTAG)"]
         end
-    end
-
-    subgraph XIAO_NRF["XIAO nRF52840"]
-        XIAO_RX["RX"]
-        XIAO_TX["TX"]
-        XIAO_GND["GND"]
-        XIAO_3V3["3V3"]
     end
 
     subgraph VICTRON["Victron MPPT<br/>VE.Direct JST-PH"]
@@ -47,139 +40,66 @@ flowchart LR
         VE_5V["Pin 4: +5V"]
     end
 
-    subgraph LEVEL_CONV["TXS0102<br/>Level Converter"]
-        LV1["LV1"]
-        LV2["LV2"]
-        HV1["HV1"]
-        HV2["HV2"]
-        LV_REF["LV (3.3V)"]
-        HV_REF["HV (5V)"]
+    subgraph LEVEL_CONV["TXS0102<br/>Level Shifter"]
+        TXS_HV["HV (5V)"]
+        TXS_LV["LV (3.3V)"]
+        TXS_HV1["HV1 ↔ LV1"]
+        TXS_HV2["HV2 ↔ LV2"]
     end
 
-    subgraph TENCODER["T-Encoder Pro<br/>JST Connector"]
-        TE_RX["RX"]
-        TE_TX["TX"]
-        TE_GND["GND"]
-        TE_VIN["VIN (5V)"]
+    subgraph SIM["SIM7600SA-MNSE"]
+        SIM_TX["UART TX"]
+        SIM_RX["UART RX"]
+        SIM_PWR["Power input<br/>(via P-FET)"]
+        SIM_USB["USB (unused)"]
+        SIM_ANT["GPS / 4G antennas"]
     end
 
-    subgraph I2C_BUS["I²C Bus"]
-        direction TB
-        INA1["INA219 #1<br/>0x40 Main"]
-        INA2["INA219 #2<br/>0x41 Fridge"]
-        MPU["MPU6500<br/>0x68"]
+    subgraph TEP["T-Encoder Pro"]
+        TEP_TX["UART TX"]
+        TEP_RX["UART RX"]
+        TEP_BUZ["(onboard buzzer)"]
     end
 
-    subgraph SHORE_CIRCUIT["Shore Power Detection"]
-        HLK["HLK-PM01<br/>230V→5V"]
-        PC817_1["PC817"]
-        R1K_1["1kΩ"]
-        R10K_1["10kΩ pull-up"]
+    subgraph I2C_BUS["I2C Bus (3.3V, 400 kHz)"]
+        INA1["INA219 #1<br/>0x40 - Main bus"]
+        INA2["INA219 #2<br/>0x41 - Fridge"]
+        MPU["MPU6500<br/>0x68 - Pitch/Roll"]
     end
 
-    subgraph CAR_CIRCUIT["Car Connection Detection"]
-        PIN10["13-Pin Connector<br/>Pin 10 (12V)"]
-        R10K_DIV["10kΩ"]
-        R10K_DIV2["10kΩ"]
-        PC817_2["PC817"]
-        R1K_2["1kΩ"]
-        R10K_2["10kΩ pull-up"]
+    subgraph DETECT_BLOCK["Detection Front-end"]
+        SHORE_FE["230V → HLK-PM01 → PC817"]
+        CAR_FE["Pin10 → divider → PC817"]
     end
 
-    subgraph ONEWIRE_CIRCUIT["1-Wire Circuit"]
-        DS18B20["DS18B20<br/>Waterproof"]
-        R4K7["4.7kΩ pull-up"]
+    subgraph WATER["Water Tank Sensor"]
+        WATER_R["0–190Ω resistive<br/>+ 100Ω divider to 3.3V"]
     end
 
-    subgraph WATER_CIRCUIT["Water Level Circuit"]
-        TANK["Tank Sensor<br/>0-190Ω"]
-        R100["100Ω ref"]
+    subgraph DS18B20["DS18B20 Outdoor Temp"]
+        DS_DATA["Data + 4.7kΩ pull-up to 3.3V"]
     end
 
-    subgraph SIM_CIRCUIT["SIM7600 Power"]
-        SIM["SIM7600SA"]
-        PFET["AO3401 P-FET"]
-        R10K_GATE["10kΩ"]
-    end
-
-    subgraph BUZZER_CIRCUIT["Buzzer"]
-        BUZZ["Piezo Buzzer"]
-    end
-
-    %% XIAO Connections
-    G1 -->|TX| XIAO_RX
-    G2 -->|RX| XIAO_TX
-    GND --- XIAO_GND
-    V33 --- XIAO_3V3
-
-    %% Victron via Level Converter
-    G5 --> LV1
-    G6 --> LV2
-    LV1 --> HV1
-    LV2 --> HV2
-    HV1 --> VE_RX
-    HV2 --> VE_TX
-    V33 --- LV_REF
-    VE_5V --- HV_REF
+    %% Connections
+    G21 --> TXS_LV
+    TXS_LV --> VE_RX
+    VE_TX --> TXS_HV
+    TXS_HV --> G20
+    VE_5V --> TXS_HV
+    V33 --> TXS_LV
     GND --- VE_GND
 
-    %% T-Encoder
-    G7 -->|TX| TE_RX
-    G8 -->|RX| TE_TX
-    GND --- TE_GND
-    V5 --- TE_VIN
+    G7 --> SIM_RX
+    SIM_TX --> G6
+    G8 --> SIM_PWR
 
-    %% I2C Bus
-    G3 ---|SDA| INA1
-    G3 ---|SDA| INA2
-    G3 ---|SDA| MPU
-    G4 ---|SCL| INA1
-    G4 ---|SCL| INA2
-    G4 ---|SCL| MPU
+    G22 --> TEP_RX
+    TEP_TX --> G23
 
-    %% Shore Detection
-    HLK -->|5V| R1K_1
-    R1K_1 --> PC817_1
-    PC817_1 --> G17
-    V33 --> R10K_1
-    R10K_1 --> G17
+    G4 --- I2C_BUS
+    G5 --- I2C_BUS
 
-    %% Car Detection
-    PIN10 --> R10K_DIV
-    R10K_DIV --> R10K_DIV2
-    R10K_DIV2 --> GND
-    R10K_DIV --> R1K_2
-    R1K_2 --> PC817_2
-    PC817_2 --> G18
-    V33 --> R10K_2
-    R10K_2 --> G18
-
-    %% 1-Wire
-    G21 --> DS18B20
-    V33 --> R4K7
-    R4K7 --> G21
-
-    %% Water Level
-    V33 --> R100
-    R100 --> G33
-    G33 --> TANK
-    TANK --> GND
-
-    %% SIM7600
-    USB ---|USB Host| SIM
-    G19 --> R10K_GATE
-    R10K_GATE --> PFET
-    PFET -->|switched 5V| SIM
-
-    %% Buzzer
-    G20 -->|PWM| BUZZ
-
-    %% Styling
-    classDef esp fill:#1565c0,stroke:#0d47a1,color:#fff
-    classDef peripheral fill:#4caf50,stroke:#2e7d32,color:#fff
-    classDef circuit fill:#ff9800,stroke:#e65100,color:#000
-    classDef power fill:#f44336,stroke:#b71c1c,color:#fff
-
-    class ESP32_S3,GPIO_LEFT,GPIO_RIGHT,POWER_USB esp
-    class XIAO_NRF,VICTRON,TENCODER,I2C_BUS peripheral
-    class SHORE_CIRCUIT,CAR_CIRCUIT,ONEWIRE_CIRCUIT,WATER_CIRCUIT,SIM_CIRCUIT,BUZZER_CIRCUIT circuit
+    SHORE_FE --> G1
+    CAR_FE --> G2
+    WATER_R --> G0
+    DS_DATA --> G3

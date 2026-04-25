@@ -3,7 +3,7 @@ title: Caravan Automation - Data Flow
 ---
 flowchart TB
     subgraph INPUTS["📥 Data Inputs"]
-        subgraph THREAD_SENSORS["Thread Sensors (802.15.4)"]
+        subgraph THREAD_SENSORS["Thread Sensors (802.15.4 / Matter)"]
             T_TEMP["🌡️ Indoor Temp/Humidity<br/>TIMMERFLOTTE"]
             T_DOOR1["🚪 Main Door<br/>MYGGBETT"]
             T_DOOR2["🚪 Storage Door<br/>MYGGBETT"]
@@ -20,21 +20,21 @@ flowchart TB
         end
 
         subgraph POWER_INPUTS["Power Status"]
-            P_SHORE["🔌 Shore Power<br/>GPIO17"]
-            P_CAR["🚗 Car Connected<br/>GPIO18"]
-            P_SOLAR["☀️ Solar Data<br/>VE.Direct UART"]
+            P_SHORE["🔌 Shore Power<br/>GPIO1"]
+            P_CAR["🚗 Car Connected<br/>GPIO2"]
+            P_SOLAR["☀️ Solar Data<br/>VE.Direct UART1"]
             P_BMS["🔋 Battery BMS<br/>BLE"]
         end
 
         subgraph COMMS_IN["Communications In"]
-            C_SMS_IN["📨 SMS Commands<br/>SIM7600"]
-            C_GPS["📍 GPS Location<br/>SIM7600"]
-            C_PHONE_IN["📱 Phone Commands<br/>BLE"]
+            C_SMS_IN["📨 SMS Commands<br/>SIM7600 (AT)"]
+            C_GPS["📍 GPS-via-AT<br/>SIM7600"]
+            C_PHONE_IN["📱 Phone Commands<br/>BLE GATT"]
             C_ENCODER["🎛️ Encoder Input<br/>T-Encoder UART"]
         end
     end
 
-    subgraph PROCESSING["⚙️ ESP32-S3 Processing"]
+    subgraph PROCESSING["⚙️ ESP32-C6 Processing"]
         subgraph AGGREGATION["Data Aggregation"]
             AGG_POWER["Power Status<br/>• Battery SoC/V/I<br/>• Solar W/Wh<br/>• Shore/Car state"]
             AGG_ENV["Environment<br/>• Indoor T/H<br/>• Outdoor T<br/>• Water level"]
@@ -51,86 +51,28 @@ flowchart TB
     end
 
     subgraph OUTPUTS["📤 Data Outputs"]
-        subgraph DISPLAY_OUT["Local Display"]
-            O_SCREEN["📺 T-Encoder AMOLED<br/>• Gauges<br/>• Status<br/>• Menus"]
-            O_BUZZER["🔊 Buzzer<br/>• Level OK<br/>• Sway warning<br/>• Alerts"]
-        end
-
-        subgraph PHONE_OUT["Phone App (BLE)"]
-            O_STATUS["📊 Full Status<br/>All sensor data"]
-            O_HISTORY["📈 Trends<br/>Power/temp graphs"]
-            O_CONFIG["⚙️ Configuration<br/>Rules & thresholds"]
-        end
-
-        subgraph SMS_OUT["SMS (SIM7600)"]
-            O_SMS_STATUS["📋 STATUS Response<br/>Battery, temp, location"]
-            O_SMS_ALERT["🚨 Alert Messages<br/>Leak, intrusion, low battery"]
-            O_SMS_GPS["📍 GPS Response<br/>Coordinates + Maps link"]
-        end
+        O_DISPLAY["📺 T-Encoder Display<br/>JSON status + buzzer"]
+        O_SMS["📨 SMS Alerts<br/>SIM7600"]
+        O_PHONE["📱 Phone App<br/>BLE GATT"]
+        O_SIREN["🔔 KLIPPBOK Siren<br/>(autonomous)"]
+        O_OTA["⬆️ OTA Updates<br/>Wi-Fi"]
     end
 
-    %% Thread sensor flows
-    T_TEMP --> AGG_ENV
-    T_DOOR1 --> AGG_SECURITY
-    T_DOOR2 --> AGG_SECURITY
-    T_LEAK --> AGG_SECURITY
-    T_MOTION --> AGG_SECURITY
-
-    %% Wired sensor flows
-    W_OUTDOOR --> AGG_ENV
-    W_WATER --> AGG_ENV
-    W_PITCH --> AGG_VEHICLE
-    W_CURRENT1 --> AGG_POWER
-    W_CURRENT2 --> AGG_POWER
-
-    %% Power input flows
-    P_SHORE --> STATE_MACHINE
-    P_CAR --> STATE_MACHINE
-    P_SOLAR --> AGG_POWER
-    P_BMS --> AGG_POWER
-
-    %% Comms input flows
-    C_GPS --> AGG_VEHICLE
-    C_SMS_IN --> RULES_ENGINE
-    C_PHONE_IN --> RULES_ENGINE
-    C_ENCODER --> RULES_ENGINE
-
-    %% Aggregation to state machine
+    THREAD_SENSORS --> AGG_ENV
+    THREAD_SENSORS --> AGG_SECURITY
+    WIRED_SENSORS --> AGG_ENV
+    WIRED_SENSORS --> AGG_VEHICLE
+    POWER_INPUTS --> AGG_POWER
     AGG_POWER --> STATE_MACHINE
-    AGG_ENV --> STATE_MACHINE
-    AGG_SECURITY --> STATE_MACHINE
     AGG_VEHICLE --> STATE_MACHINE
-
-    %% State machine to rules
-    STATE_MACHINE --> RULE_ALERT
-    STATE_MACHINE --> RULE_BEHAVIOR
-
-    %% Rules to outputs
-    RULE_ALERT --> O_SMS_ALERT
-    RULE_ALERT --> O_BUZZER
-    RULE_BEHAVIOR --> O_SCREEN
-
-    %% Data to outputs
-    AGG_POWER --> O_SCREEN
-    AGG_POWER --> O_STATUS
-    AGG_POWER --> O_SMS_STATUS
-    AGG_ENV --> O_SCREEN
-    AGG_ENV --> O_STATUS
-    AGG_ENV --> O_SMS_STATUS
-    AGG_SECURITY --> O_SCREEN
-    AGG_SECURITY --> O_STATUS
-    AGG_VEHICLE --> O_SCREEN
-    AGG_VEHICLE --> O_STATUS
-    AGG_VEHICLE --> O_SMS_GPS
-    AGG_VEHICLE --> O_BUZZER
-
-    %% Styling
-    classDef input fill:#4caf50,stroke:#2e7d32,color:#fff
-    classDef process fill:#1565c0,stroke:#0d47a1,color:#fff
-    classDef output fill:#ff9800,stroke:#e65100,color:#000
-    classDef state fill:#9c27b0,stroke:#6a1b9a,color:#fff
-
-    class T_TEMP,T_DOOR1,T_DOOR2,T_LEAK,T_MOTION,W_OUTDOOR,W_WATER,W_PITCH,W_CURRENT1,W_CURRENT2,P_SHORE,P_CAR,P_SOLAR,P_BMS,C_SMS_IN,C_GPS,C_PHONE_IN,C_ENCODER input
-    class AGG_POWER,AGG_ENV,AGG_SECURITY,AGG_VEHICLE,RULE_ALERT,RULE_BEHAVIOR process
-    class O_SCREEN,O_BUZZER,O_STATUS,O_HISTORY,O_CONFIG,O_SMS_STATUS,O_SMS_ALERT,O_SMS_GPS output
-    class STATE_MACHINE state
+    STATE_MACHINE --> RULES_ENGINE
+    AGG_SECURITY --> RULES_ENGINE
+    AGG_ENV --> RULES_ENGINE
+    AGG_POWER --> RULES_ENGINE
+    RULES_ENGINE --> O_DISPLAY
+    RULES_ENGINE --> O_SMS
+    AGG_POWER --> O_PHONE
+    AGG_ENV --> O_PHONE
+    AGG_SECURITY --> O_PHONE
+    COMMS_IN --> RULES_ENGINE
+    O_OTA -.-> PROCESSING
