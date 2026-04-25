@@ -1,6 +1,6 @@
 # Caravan Automation System
 
-Low-power monitoring and automation system for a towable caravan, built around an ESP32-S3 running OpenThread Border Router with Matter-compatible sensors.
+Low-power monitoring and automation system for a towable caravan, built around an ESP32-C6 SuperMini running OpenThread Border Router with Matter-compatible sensors.
 
 ---
 
@@ -21,27 +21,25 @@ Low-power monitoring and automation system for a towable caravan, built around a
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        ESP32-S3 HUB                             │
+│                    ESP32-C6 SuperMini HUB                       │
 │                                                                 │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐    │
-│  │ Thread  │ │  BLE    │ │ VE.Dir  │ │  State  │ │  Rules  │    │
-│  │  OTBR   │ │ Dual    │ │ Parser  │ │ Machine │ │ Engine  │    │
-│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └─────────┘    │
-│       │           │           │           │                     │
-└───────┼───────────┼───────────┼───────────┼─────────────────────┘
-        │           │           │           │
-        ▼           ▼           ▼           ▼
-   ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
-   │  XIAO   │ │ Power   │ │ Victron │ │  GPIO   │
-   │nRF52840 │ │ Queen   │ │  MPPT   │ │ Detect  │
-   │ Thread  │ │  BMS    │ │VE.Direct│ │Shore/Car│
-   └────┬────┘ └─────────┘ └─────────┘ └─────────┘
-        │
-        ▼
-   ┌─────────────────────────────────────┐
-   │      IKEA Thread Sensors            │
-   │  Door │ Temp │ Leak │ Motion        │
-   └─────────────────────────────────────┘
+│  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐         │
+│  │ Thread │ │ Matter │ │ Wi-Fi  │ │  BLE   │ │ State  │         │
+│  │  OTBR  │ │  Ctrl  │ │ + OTA  │ │  C+P   │ │Machine │         │
+│  └────┬───┘ └────┬───┘ └────────┘ └────┬───┘ └────────┘         │
+│       │          │                     │                        │
+│  ┌────┴──────────┴───┐  ┌──────────────┴───┐  ┌────────┐        │
+│  │ 802.15.4 Radio    │  │ BLE 5.3 Radio    │  │ VE.Dir │        │
+│  │ (native)          │  │                  │  │ Parser │        │
+│  └────┬──────────────┘  └────┬─────────────┘  └────┬───┘        │
+└───────┼──────────────────────┼─────────────────────┼────────────┘
+        │                      │                     │
+        ▼                      ▼                     ▼
+   ┌─────────┐            ┌─────────┐           ┌─────────┐
+   │  IKEA   │            │ Power   │           │ Victron │
+   │ Thread  │            │ Queen   │           │  MPPT   │
+   │ Sensors │            │  BMS    │           │VE.Direct│
+   └─────────┘            └─────────┘           └─────────┘
 ```
 
 ---
@@ -50,11 +48,10 @@ Low-power monitoring and automation system for a towable caravan, built around a
 
 | Component | Purpose | Interface |
 |-----------|---------|-----------|
-| ESP32-S3 DevKit | Main controller | — |
-| XIAO nRF52840 Plus | Thread Radio Co-Processor | UART |
-| T-Encoder Pro | AMOLED display + rotary encoder | UART (JST) |
-| SIM7600SA-MNSE | 4G LTE + GPS | USB |
-| MPU6500 | Gyroscope/accelerometer + buzzer | I2C |
+| ESP32-C6 SuperMini | Main controller (Thread + Wi-Fi + BLE + Matter) | — |
+| T-Encoder Pro | AMOLED display + rotary encoder + buzzer | UART (JST) |
+| SIM7600SA-MNSE | 4G LTE + GPS | UART (AT mode + GPS-via-AT) |
+| MPU6500 | Gyroscope/accelerometer | I2C |
 | Victron MPPT 75/15 | Solar charge controller | VE.Direct |
 | Victron IP65 12V 25A | Shore power charger | — |
 | Power Queen 100Ah | LiFePO4 battery with BLE BMS | BLE |
@@ -80,22 +77,25 @@ Low-power monitoring and automation system for a towable caravan, built around a
 
 | GPIO | Function | Direction | Protocol | Notes |
 |------|----------|-----------|----------|-------|
-| 1 | XIAO nRF52840 TX | Output | UART1 | Thread RCP, 1 Mbit/s |
-| 2 | XIAO nRF52840 RX | Input | UART1 | |
-| 3 | I2C SDA | Bidir | I2C | INA219 ×2, MPU6500 |
-| 4 | I2C SCL | Output | I2C | 400 kHz |
-| 5 | Victron MPPT TX | Output | UART2 | Via TXS0102 level shifter |
-| 6 | Victron MPPT RX | Input | UART2 | 19200 baud |
-| 7 | T-Encoder Pro TX | Output | SW UART | JST connector |
-| 8 | T-Encoder Pro RX | Input | SW UART | 115200 baud |
-| 17 | Shore power detect | Input | GPIO | Active LOW (PC817) |
-| 18 | Car connection detect | Input | GPIO | Active LOW (PC817) |
-| 19 | SIM7600 power gate | Output | GPIO | AO3401 P-FET control |
-| 20 | Buzzer | Output | PWM | Level/alert audio |
-| 21 | DS18B20 data | Bidir | 1-Wire | 4.7kΩ pull-up to 3.3V |
-| 33 | Water level ADC | Input | ADC | 100Ω voltage divider |
-| USB | SIM7600SA | — | USB Host | AT commands, GPS NMEA |
-| BLE | Power Queen + Phone | — | BLE | Central + Peripheral |
+| 0 | Water level | Input | ADC | A0, voltage divider |
+| 1 | Shore power detect | Input | GPIO | Active LOW (PC817) |
+| 2 | Car connection detect | Input | GPIO | Active LOW (PC817) |
+| 3 | DS18B20 outdoor temp | Bidir | 1-Wire | 4.7 kΩ pull-up to 3.3V |
+| 4 | I2C SDA | Bidir | I2C | INA219 ×2, MPU6500 |
+| 5 | I2C SCL | Output | I2C | 400 kHz |
+| 6 | LP_UART RX | Input | UART | SIM7600 → C6 |
+| 7 | LP_UART TX | Output | UART | C6 → SIM7600, 115200 baud |
+| 8 | SIM7600 power gate | Output | GPIO | AO3401 P-FET (disables onboard RGB LED) |
+| 14 | Reserved | — | — | Future relay channel |
+| 20 | UART1 RX | Input | UART | VE.Direct from MPPT, 19200 baud |
+| 21 | UART1 TX | Output | UART | VE.Direct via TXS0102 level shifter |
+| 22 | T-Encoder TX | Output | SW UART | JST connector to display |
+| 23 | T-Encoder RX | Input | SW UART | 115200 baud |
+| USB | USB-Serial-JTAG | — | USB | Flashing + console + JTAG |
+| BLE | Power Queen + Phone | — | BLE 5.3 | Central + Peripheral |
+| RF | IKEA sensors | — | 802.15.4 | Native, Matter-over-Thread |
+
+**Reserved / cannot use:** GPIO 9 (BOOT button), 12, 13 (USB D-/D+), 15 (status LED), 18, 19 (internal SPI flash).
 
 ---
 
@@ -118,13 +118,13 @@ Low-power monitoring and automation system for a towable caravan, built around a
                                               │
                                              GND
 
-3.3V ──► 10kΩ pull-up ──┬──► GPIO17
+3.3V ──► 10kΩ pull-up ──┬──► GPIO1
                         │
                    PC817 collector
                         │
                        GND
 
-Logic: Shore ON → GPIO17 LOW | Shore OFF → GPIO17 HIGH
+Logic: Shore ON → GPIO1 LOW | Shore OFF → GPIO1 HIGH
 ```
 
 ### Car Connection Detection (13-Pin Connector)
@@ -136,19 +136,19 @@ Pin 10 (12V) ──► 10kΩ ──┬──► 10kΩ ──► GND     (voltage
                                           │
                                          GND
 
-3.3V ──► 10kΩ pull-up ──┬──► GPIO18
+3.3V ──► 10kΩ pull-up ──┬──► GPIO2
                         │
                    PC817 collector
                         │
                        GND
 
-Logic: Car ON → GPIO18 LOW | Car OFF → GPIO18 HIGH
+Logic: Car ON → GPIO2 LOW | Car OFF → GPIO2 HIGH
 ```
 
 ### Water Level Sensing
 
 ```
-3.3V ──► 100Ω ──┬──► GPIO33 (ADC)
+3.3V ──► 100Ω ──┬──► GPIO0 (ADC)
                 │
            Tank Sensor (0-190Ω)
                 │
@@ -161,7 +161,7 @@ ADC: Empty ≈ 0 | Full ≈ 2680 (of 4095)
 ### Outdoor Temperature (DS18B20)
 
 ```
-3.3V ──► 4.7kΩ ──┬──► GPIO21 (1-Wire data)
+3.3V ──► 4.7kΩ ──┬──► GPIO3 (1-Wire data)
                  │
             DS18B20 DATA (yellow)
             DS18B20 VCC (red) ──► 3.3V
@@ -172,14 +172,14 @@ ADC: Empty ≈ 0 | Full ≈ 2680 (of 4095)
 
 ## VE.Direct Connection
 
-Victron MPPT uses 5V TTL; ESP32-S3 uses 3.3V. Level shifter required.
+Victron MPPT uses 5V TTL; ESP32-C6 uses 3.3V. Level shifter required.
 
 ```
-Victron JST-PH          TXS0102              ESP32-S3
+Victron JST-PH          TXS0102              ESP32-C6
 ─────────────          ─────────             ────────
 Pin 1: GND ──────────► GND ◄────────────────► GND
-Pin 2: RX  ◄───────── HV1 ◄──── LV1 ◄─────── GPIO5 (TX)
-Pin 3: TX  ──────────► HV2 ────► LV2 ───────► GPIO6 (RX)
+Pin 2: RX  ◄───────── HV1 ◄──── LV1 ◄─────── GPIO21 (TX)
+Pin 3: TX  ──────────► HV2 ────► LV2 ───────► GPIO20 (RX)
 Pin 4: +5V ──────────► HV (ref)
                        LV (ref) ◄───────────► 3.3V
 ```
@@ -188,7 +188,7 @@ Pin 4: +5V ──────────► HV (ref)
 
 ## State Machine
 
-| GPIO17 (Shore) | GPIO18 (Car) | State | Description |
+| GPIO1 (Shore) | GPIO2 (Car) | State | Description |
 |----------------|--------------|-------|-------------|
 | HIGH | HIGH | **OFFGRID** | Battery only, wild camping |
 | LOW | HIGH | **CAMPSITE** | Shore power connected |
@@ -199,7 +199,7 @@ Pin 4: +5V ──────────► HV (ref)
 
 | Feature | OFFGRID | CAMPSITE | TOWING | ARRIVED |
 |---------|---------|----------|--------|---------|
-| Deep sleep | Aggressive | Off | Off | Off |
+| Sleep mode | Light sleep | Off | Off | Off |
 | GPS tracking | On request | Off | Continuous | Off |
 | Motion alerts | On | Optional | Suppressed | Off |
 | Sway detection | Off | Off | Active | Off |
@@ -250,19 +250,19 @@ Pin 4: +5V ──────────► HV (ref)
 
 | Link | Protocol | Speed | Purpose |
 |------|----------|-------|---------|
-| ESP32 ↔ XIAO | UART1 | 1000000 | Thread RCP (HDLC frames) |
-| ESP32 ↔ Victron | UART2 | 19200 | VE.Direct text protocol |
-| ESP32 ↔ T-Encoder | SW UART | 115200 | JSON status/events |
-| ESP32 ↔ SIM7600 | USB | — | AT commands, GPS NMEA |
-| ESP32 ↔ Power Queen | BLE | — | Proprietary BMS protocol |
-| ESP32 ↔ Phone | BLE GATT | — | Status read, config write |
-| XIAO ↔ IKEA sensors | Thread 802.15.4 | — | Matter over Thread |
+| C6 ↔ Victron MPPT | UART1 | 19200 | VE.Direct text protocol |
+| C6 ↔ T-Encoder Pro | SW UART | 115200 | JSON status + buzzer commands |
+| C6 ↔ SIM7600 | LP_UART | 115200 | AT commands, SMS, GPS-via-AT |
+| C6 ↔ Power Queen | BLE | — | Proprietary BMS protocol |
+| C6 ↔ Phone | BLE GATT | — | Status read, config write |
+| C6 ↔ IKEA sensors | 802.15.4 (Matter) | — | Native, no RCP |
+| C6 ↔ Wi-Fi AP | Wi-Fi 6 STA | — | OTA + home backhaul |
 
 ---
 
 ## T-Encoder Pro Protocol
 
-### ESP32 → T-Encoder (status updates)
+### C6 → T-Encoder (status updates + buzzer)
 
 ```json
 {
@@ -277,7 +277,16 @@ Pin 4: +5V ──────────► HV (ref)
 }
 ```
 
-### T-Encoder → ESP32 (user input)
+**Buzzer commands** (sent in addition to status updates — display fires its onboard buzzer):
+
+```json
+{"buzzer": {"pattern": "level_ok"}}
+{"buzzer": {"pattern": "level_warning"}}
+{"buzzer": {"pattern": "alert"}}
+{"buzzer": {"freq": 2000, "duration_ms": 100}}
+```
+
+### T-Encoder → C6 (user input)
 
 ```json
 {"event": "encoder", "direction": "cw", "clicks": 3}
@@ -316,18 +325,14 @@ Pin 4: +5V ──────────► HV (ref)
 
 ## Power Budget
 
-| Component | Active | Sleep | Duty Cycle | Average |
-|-----------|--------|-------|------------|---------|
-| ESP32-S3 | 80 mA | 10 μA | 1% | ~1 mA |
-| XIAO nRF52840 | 5 mA | 2 μA | 5% | ~0.3 mA |
-| INA219 ×2 | 1 mA | — | 100% | 1 mA |
-| MPU6500 | 3 mA | — | 10% | ~0.3 mA |
-| SIM7600 | 300 mA | OFF | 0.1% | ~0.3 mA |
-| T-Encoder | 50 mA | — | 10% | ~5 mA |
-| **Total (OFFGRID)** | | | | **~8 mA** |
-| **Total (CAMPSITE)** | | | | **~60 mA** |
+| State | Mode | Estimated avg current | Notes |
+|-------|------|----------------------|-------|
+| OFFGRID | Light sleep, Thread router awake | 30–50 mA | Conservative; instrument early in firmware |
+| CAMPSITE | Active, Wi-Fi connected | 80–120 mA | Display always on |
+| TOWING | Active, GPS continuous | 100–150 mA | SMS standby |
+| ARRIVED | Active, similar to CAMPSITE | 80–120 mA | |
 
-With 100Ah battery: **~520 days** standby in OFFGRID mode (theoretical).
+With a 100 Ah battery: roughly **80–140 days** OFFGRID standby. The previous architecture's ~520 day figure assumed the host MCU could deep-sleep, which is incompatible with running a Thread border router. These numbers will be measured and refined during firmware bring-up.
 
 ---
 
@@ -337,64 +342,74 @@ With 100Ah battery: **~520 days** standby in OFFGRID mode (theoretical).
 .
 ├── README.md                       # This document
 │
-├── esp32-hub/                      # Main ESP-IDF firmware (ESP32-S3)
+├── c6-hub/                         # ESP-IDF v6.0 firmware (ESP32-C6)
+│   ├── CMakeLists.txt
+│   ├── partitions.csv              # Single-app slot for 4 MB; switches to dual-OTA on 16 MB
+│   ├── sdkconfig.defaults
+│   ├── build.sh                    # Wraps idf.py
+│   ├── flash.sh                    # Wraps idf.py flash + monitor
 │   └── main/
-│       ├── main.c                  # Entry point, sleep management
-│       ├── state_machine.c         # OFFGRID / CAMPSITE / TOWING / ARRIVED
-│       ├── thread_otbr.c           # OpenThread Border Router
-│       ├── matter_controller.c     # Matter device handling
-│       ├── victron_vedirect.c      # VE.Direct parser
-│       ├── power_monitor.c         # INA219 + shore/car detect
-│       ├── sensors.c               # DS18B20, water level, MPU6500
-│       ├── ble_bms.c               # Power Queen BMS client
-│       ├── ble_server.c            # Phone-app GATT server
-│       ├── sms_handler.c           # SIM7600 AT commands
-│       ├── gps.c                   # NMEA parser
-│       ├── display_link.c          # T-Encoder UART protocol
-│       ├── alerts.c                # Threshold monitoring
-│       ├── rules_engine.c          # Configurable automation
-│       └── config.c                # NVS storage for settings
+│       ├── CMakeLists.txt
+│       ├── main.c                  # Entry point — currently boot info + heartbeat
+│       ├── state_machine.c         # OFFGRID / CAMPSITE / TOWING / ARRIVED  (planned)
+│       ├── thread_otbr.c           # OpenThread Border Router  (planned)
+│       ├── matter_controller.c     # Matter device pairing + reads  (planned)
+│       ├── wifi_manager.c          # Wi-Fi STA + OTA  (planned)
+│       ├── ota_handler.c           # esp_https_ota driver  (planned)
+│       ├── victron_vedirect.c      # VE.Direct parser  (planned)
+│       ├── power_monitor.c         # INA219 + shore/car detect  (planned)
+│       ├── sensors.c               # DS18B20, water level, MPU6500  (planned)
+│       ├── ble_bms.c               # Power Queen BMS client  (planned)
+│       ├── ble_server.c            # Phone-app GATT server  (planned)
+│       ├── sms_handler.c           # SIM7600 AT commands  (planned)
+│       ├── gps.c                   # GPS-via-AT polling  (planned)
+│       ├── display_link.c          # T-Encoder UART protocol + buzzer  (planned)
+│       ├── alerts.c                # Threshold monitoring  (planned)
+│       ├── rules_engine.c          # Configurable automation  (planned)
+│       └── config.c                # NVS storage for settings  (planned)
 │
-├── xiao-rcp/                       # Zephyr-based Thread RCP (XIAO nRF52840)
-│
-├── t-encoder-display/              # LVGL UI for T-Encoder Pro
-│   ├── main.cpp                    # Entry / event loop
-│   ├── gauges.cpp                  # Battery, solar, temp gauges
-│   ├── level_screen.cpp            # Pitch/roll visualization
-│   ├── menu.cpp                    # Settings navigation
-│   └── uart_protocol.cpp           # JSON parser
+├── t-encoder-display/              # LVGL UI for T-Encoder Pro  (planned)
+│   ├── main.cpp
+│   ├── gauges.cpp
+│   ├── level_screen.cpp
+│   ├── menu.cpp
+│   └── uart_protocol.cpp
 │
 ├── docs/                           # Architecture & protocol specs
 │   ├── architecture.mermaid
 │   ├── state_machine.mermaid
 │   ├── wiring.mermaid
 │   ├── dataflow.mermaid
-│   └── protocols/
-│       ├── powerqueen_bms.md       # PowerQueen BMS BLE protocol
-│       └── victron_instant_readout.md
+│   ├── protocols/
+│   │   ├── powerqueen_bms.md
+│   │   └── victron_instant_readout.md
+│   └── superpowers/                # Specs and plans for major changes
+│       ├── specs/
+│       └── plans/
 │
 └── tools/
-    └── ble-probe/                  # Python reference (Pi-based). Reverse-
-        ├── read_battery.py         # engineers the BLE protocols the ESP32
-        ├── read_victron.py         # firmware will re-implement in C.
-        └── victron.env.example     # Not part of the runtime system.
+    └── ble-probe/                  # Python reference (Pi-based) — reverse-engineers
+        ├── read_battery.py         # the BLE protocols the firmware re-implements in C.
+        ├── read_victron.py         # Not part of the runtime system.
+        └── victron.env.example
 ```
 
-Module source files inside `esp32-hub/main/` and `t-encoder-display/` are
-**targets to be implemented** — the directories exist but the files haven't
-been created yet.
+Module source files inside `c6-hub/main/` (other than `main.c`) and
+`t-encoder-display/` are **targets to be implemented** — `main.c` is a
+hello-world that prints chip info; the rest will be built up module by
+module, each with its own spec under `docs/superpowers/specs/`.
 
 ---
 
 ## Key Design Decisions
 
-1. **Eliminated Raspberry Pi** — ESP32-S3 handles all functions directly (OTBR, BLE, sensors), reducing complexity and power consumption.
+1. **Single ESP32-C6 SuperMini** — One chip handles Thread (native 802.15.4), Wi-Fi 6, BLE 5.3, and the application logic. Replaces the earlier ESP32-S3 + XIAO nRF52840 RCP design; see [`docs/superpowers/specs/2026-04-25-c6-single-mcu-design.md`](docs/superpowers/specs/2026-04-25-c6-single-mcu-design.md) for the rationale.
 
-2. **IKEA Thread sensors over custom nodes** — Off-the-shelf Matter/Thread devices eliminate custom firmware, provide multi-year battery life, and simplify deployment.
+2. **IKEA Thread sensors over custom nodes** — Off-the-shelf Matter-over-Thread devices eliminate custom firmware, provide multi-year battery life, and simplify deployment.
 
-3. **XIAO nRF52840 via UART** — Native UART RCP is simpler and more reliable than USB; avoids conflict with SIM7600 on USB port.
+3. **SIM7600 over UART (AT mode + GPS-via-AT)** — The C6 has no USB host. AT-mode polling at ~1 Hz is sufficient for the caravan use case (SMS commands, periodic GPS); avoids a second UART for raw NMEA streaming.
 
-4. **T-Encoder Pro via UART** — Stationary display doesn't need wireless; UART is reliable for continuous updates.
+4. **T-Encoder Pro for display and audio** — The display module includes its own ESP32-S3, AMOLED screen, rotary encoder, and a buzzer on its GPIO17. The C6 sends JSON over UART; the display drives its own UI and sounds its own buzzer. No discrete buzzer needed on the C6.
 
 5. **Single Victron VE.Direct** — MPPT only; IP65 charger data is redundant given shore power detection and INA219 monitoring.
 
@@ -402,35 +417,40 @@ been created yet.
 
 7. **Power Queen BMS via BLE** — Deferred to software phase due to proprietary protocol; INA219 provides backup current measurement.
 
-8. **Relay support pre-wired** — Free GPIOs reserved for future control without implementing now.
+8. **Relay support pre-wired** — GPIO 14 reserved for future relay control without implementing now.
 
-9. **Automation rules in software** — All thresholds and behaviors configurable in NVS, changeable via phone app.
+9. **Automation rules in software** — All thresholds and behaviors configurable in NVS, changeable via phone app or Wi-Fi.
+
+10. **Wi-Fi kept active** — Used for OTA updates and home-network connectivity when parked. Drops to backhaul-only or disabled if SRAM headroom becomes a problem.
 
 ---
 
 ## Next Steps
 
-1. **Flash XIAO nRF52840** with OpenThread RCP firmware
-2. **Build VE.Direct cable** with TXS0102 level shifter
-3. **Wire detection circuits** (shore power, car connection)
-4. **Develop ESP32-S3 firmware** (modular, start with state machine)
-5. **Pair IKEA sensors** to Thread network
-6. **Develop T-Encoder Pro UI** (LVGL gauges and menus)
-7. **Port Power Queen BLE protocol** to C (spec in [`docs/protocols/powerqueen_bms.md`](docs/protocols/powerqueen_bms.md))
-8. **Test and iterate**
+1. ~~Flash XIAO nRF52840 with OpenThread RCP firmware~~ — **obsolete after C6 pivot.**
+2. **Bring up `c6-hub` hello-world firmware on the 4 MB ESP32-C6FH4** — confirm USB-Serial-JTAG flash + console + IEEE 802.15.4 MAC visible. ✓ Done 2026-04-25.
+3. **Build VE.Direct cable** with TXS0102 level shifter.
+4. **Wire detection circuits** (shore power, car connection).
+5. **Develop ESP32-C6 firmware modules** — each with its own spec/plan under `docs/superpowers/`. Suggested order: state_machine → power_monitor → sensors → display_link → ble_bms → thread_otbr → matter_controller → wifi_manager → sms_handler → ota_handler → alerts/rules.
+6. **Pair IKEA sensors** to the Thread network (after Matter controller works).
+7. **Develop T-Encoder Pro UI** (LVGL gauges, menus, buzzer patterns).
+8. **Port Power Queen BLE protocol** to C (spec in [`docs/protocols/powerqueen_bms.md`](docs/protocols/powerqueen_bms.md)).
+9. **Migrate to 16 MB SuperMini** when it arrives — switch `partitions.csv` to dual-OTA layout.
+10. **Test and iterate.**
 
 ---
 
 ## References
 
-- [ESP-IDF OpenThread Border Router](https://github.com/espressif/esp-idf/tree/master/examples/openthread/ot_br)
+- [ESP-IDF v6.0 Programming Guide (ESP32-C6)](https://docs.espressif.com/projects/esp-idf/en/stable/esp32c6/)
+- [ESP Thread Border Router SDK](https://github.com/espressif/esp-thread-br)
+- [ESP-Matter](https://github.com/espressif/esp-matter)
 - [Victron VE.Direct Protocol](https://www.victronenergy.com/support-and-downloads/technical-information)
-- [Nordic nRF52840 Thread RCP](https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/protocols/thread/overview.html)
 - [IKEA DIRIGERA Thread Sensors](https://www.ikea.com/us/en/cat/smart-sensors-47547/)
 - [T-Encoder Pro GitHub](https://github.com/Xinyuan-LilyGO/T-Encoder-Pro)
 - [Power Queen BMS BLE Protocol](https://github.com/dmytro-tsepilov/pq_bms_bluetooth)
 
 ---
 
-*Document version: 1.0*  
+*Document version: 2.0 — single-MCU ESP32-C6 architecture*  
 *Last updated: April 2026*
