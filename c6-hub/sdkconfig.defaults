@@ -1,12 +1,12 @@
 # Target chip
 CONFIG_IDF_TARGET="esp32c6"
 
-# Flash size — bring-up board is ESP32-C6FH4 (4 MB embedded). When the
-# 16 MB SuperMini arrives, change this to 16MB and update partitions.csv.
-CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
-CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+# Flash size — ESP32-C6 SuperMini with 16 MB Boya flash
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+CONFIG_SPI_FLASH_SUPPORT_BOYA_CHIP=y
 
-# Custom partition table (single app slot — see partitions.csv)
+# Custom partition table (dual-OTA + storage — see partitions.csv)
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
