@@ -109,7 +109,7 @@ static void ble_init(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "boot (this build arrived over OTA)");
+    ESP_LOGI(TAG, "boot (this build was delivered via OTA)");
     log_chip_info();
 
     esp_err_t err = nvs_flash_init();
