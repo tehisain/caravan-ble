@@ -12,6 +12,8 @@
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
+#include "wifi_manager.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "caravan";
 static const char *BLE = "ble";
@@ -113,6 +115,14 @@ void app_main(void)
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         nvs_flash_erase();
         nvs_flash_init();
+    }
+
+    if (wifi_manager_init() == ESP_OK) {
+        if (wifi_manager_wait_connected(CONFIG_OTA_WIFI_TIMEOUT_MS) == ESP_OK) {
+            ESP_LOGI(TAG, "wifi up");
+        } else {
+            ESP_LOGW(TAG, "wifi timeout, continuing without it");
+        }
     }
 
     ble_init();
