@@ -189,13 +189,17 @@ esp_err_t ota_check_and_update(void)
         ESP_LOGE(TAG, "%d response missing Location header", rs);
         return ESP_FAIL;
     }
-    ESP_LOGI(TAG, "downloading (resolved) %s", s_redirect_url);
+    ESP_LOGI(TAG, "downloading (%d bytes URL)", (int)strlen(s_redirect_url));
 
     esp_http_client_config_t ota_http = {
         .url = s_redirect_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 30000,
         .keep_alive_enable = true,
+        // The signed release-assets URL is ~1100–1500 bytes. Default
+        // 512-byte buffers overflow on the request line.
+        .buffer_size = 4096,
+        .buffer_size_tx = 4096,
     };
     esp_https_ota_config_t hcfg = {
         .http_config = &ota_http,
