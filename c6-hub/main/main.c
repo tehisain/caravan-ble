@@ -109,7 +109,7 @@ static void ble_init(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "boot (OTA upgrade test)");
+    ESP_LOGI(TAG, "boot (post-OTA build)");
     log_chip_info();
 
     esp_err_t err = nvs_flash_init();
