@@ -144,10 +144,43 @@ esp_err_t ota_check_and_update(void)
         ESP_LOGW(TAG, "release has no '%s' asset; aborting", CONFIG_OTA_ASSET_NAME);
         return ESP_FAIL;
     }
-    ESP_LOGI(TAG, "downloading %s", asset_url);
+
+    // GitHub's /releases/download/* always 302-redirects to a signed
+    // release-assets.githubusercontent.com URL. esp_https_ota's connect
+    // path doesn't reliably handle that initial hop, so resolve the
+    // redirect ourselves with esp_http_client (HEAD), then hand the
+    // final URL to esp_https_ota.
+    static char final_url[512];
+    esp_http_client_config_t redir_cfg = {
+        .url = asset_url,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .method = HTTP_METHOD_HEAD,
+        .disable_auto_redirect = true,
+        .timeout_ms = 10000,
+        .user_agent = "c6-hub/1.0",
+    };
+    esp_http_client_handle_t rc = esp_http_client_init(&redir_cfg);
+    err = esp_http_client_perform(rc);
+    int rs = esp_http_client_get_status_code(rc);
+    final_url[0] = 0;
+    if (err == ESP_OK && (rs == 301 || rs == 302 || rs == 303 || rs == 307 || rs == 308)) {
+        char *loc = NULL;
+        if (esp_http_client_get_header(rc, "Location", &loc) == ESP_OK && loc) {
+            strncpy(final_url, loc, sizeof(final_url) - 1);
+        }
+    } else {
+        ESP_LOGE(TAG, "redirect probe failed: err=%s status=%d",
+                 esp_err_to_name(err), rs);
+    }
+    esp_http_client_cleanup(rc);
+    if (final_url[0] == 0) {
+        ESP_LOGE(TAG, "could not resolve redirect from %s", asset_url);
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "downloading (resolved) %s", final_url);
 
     esp_http_client_config_t ota_http = {
-        .url = asset_url,
+        .url = final_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 30000,
         .keep_alive_enable = true,
