@@ -13,6 +13,7 @@
 #include "host/ble_hs.h"
 #include "host/util/util.h"
 #include "wifi_manager.h"
+#include "ota_handler.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "caravan";
@@ -119,7 +120,7 @@ void app_main(void)
 
     if (wifi_manager_init() == ESP_OK) {
         if (wifi_manager_wait_connected(CONFIG_OTA_WIFI_TIMEOUT_MS) == ESP_OK) {
-            ESP_LOGI(TAG, "wifi up");
+            ota_check_and_update();
         } else {
             ESP_LOGW(TAG, "wifi timeout, continuing without it");
         }
