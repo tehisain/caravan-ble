@@ -17,6 +17,7 @@ static const char *TAG = "ota";
 
 static char  s_json[6144];
 static int   s_json_len;
+static char  s_redirect_url[512];
 
 static esp_err_t on_http_event(esp_http_client_event_t *evt)
 {
@@ -28,6 +29,17 @@ static esp_err_t on_http_event(esp_http_client_event_t *evt)
             s_json_len += n;
             s_json[s_json_len] = 0;
         }
+    }
+    return ESP_OK;
+}
+
+static esp_err_t on_redirect_event(esp_http_client_event_t *evt)
+{
+    if (evt->event_id == HTTP_EVENT_ON_HEADER
+        && evt->header_key && evt->header_value
+        && strcasecmp(evt->header_key, "Location") == 0) {
+        strncpy(s_redirect_url, evt->header_value, sizeof(s_redirect_url) - 1);
+        s_redirect_url[sizeof(s_redirect_url) - 1] = 0;
     }
     return ESP_OK;
 }
@@ -148,39 +160,37 @@ esp_err_t ota_check_and_update(void)
     // GitHub's /releases/download/* always 302-redirects to a signed
     // release-assets.githubusercontent.com URL. esp_https_ota's connect
     // path doesn't reliably handle that initial hop, so resolve the
-    // redirect ourselves with esp_http_client (HEAD), then hand the
-    // final URL to esp_https_ota.
-    static char final_url[512];
+    // redirect ourselves with esp_http_client (HEAD), capture the
+    // Location header in the event callback, then hand the final URL
+    // to esp_https_ota.
+    s_redirect_url[0] = 0;
     esp_http_client_config_t redir_cfg = {
         .url = asset_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .method = HTTP_METHOD_HEAD,
         .disable_auto_redirect = true,
+        .event_handler = on_redirect_event,
         .timeout_ms = 10000,
         .user_agent = "c6-hub/1.0",
     };
     esp_http_client_handle_t rc = esp_http_client_init(&redir_cfg);
     err = esp_http_client_perform(rc);
     int rs = esp_http_client_get_status_code(rc);
-    final_url[0] = 0;
-    if (err == ESP_OK && (rs == 301 || rs == 302 || rs == 303 || rs == 307 || rs == 308)) {
-        char *loc = NULL;
-        if (esp_http_client_get_header(rc, "Location", &loc) == ESP_OK && loc) {
-            strncpy(final_url, loc, sizeof(final_url) - 1);
-        }
-    } else {
-        ESP_LOGE(TAG, "redirect probe failed: err=%s status=%d",
-                 esp_err_to_name(err), rs);
-    }
     esp_http_client_cleanup(rc);
-    if (final_url[0] == 0) {
-        ESP_LOGE(TAG, "could not resolve redirect from %s", asset_url);
+
+    if (err != ESP_OK || rs < 300 || rs >= 400) {
+        ESP_LOGE(TAG, "redirect probe: err=%s status=%d",
+                 esp_err_to_name(err), rs);
         return ESP_FAIL;
     }
-    ESP_LOGI(TAG, "downloading (resolved) %s", final_url);
+    if (s_redirect_url[0] == 0) {
+        ESP_LOGE(TAG, "%d response missing Location header", rs);
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "downloading (resolved) %s", s_redirect_url);
 
     esp_http_client_config_t ota_http = {
-        .url = final_url,
+        .url = s_redirect_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 30000,
         .keep_alive_enable = true,
