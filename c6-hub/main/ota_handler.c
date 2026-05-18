@@ -17,7 +17,9 @@ static const char *TAG = "ota";
 
 static char  s_json[6144];
 static int   s_json_len;
-static char  s_redirect_url[512];
+// GitHub signed-blob URLs include a long JWT + SAS params; observed
+// lengths in the 1000–1500 byte range. Size with headroom.
+static char  s_redirect_url[2048];
 
 static esp_err_t on_http_event(esp_http_client_event_t *evt)
 {
