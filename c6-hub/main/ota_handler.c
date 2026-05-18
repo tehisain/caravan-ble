@@ -6,6 +6,9 @@
 #include "esp_app_desc.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
+#include "esp_https_ota.h"
+#include "esp_ota_ops.h"
+#include "esp_system.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "ota";
@@ -29,13 +32,13 @@ static esp_err_t on_http_event(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-// Find the first occurrence of `"key":"value"` in src starting at *from
-// (or anywhere if from is NULL). On success, *out is set to point to the
-// value char (just past the opening quote) and *out_len to its length;
-// from is advanced past the value. Returns true on success.
+// Find the first occurrence of `"key":"value"` in src starting at *cursor
+// (or anywhere if *cursor is NULL). On success, *out is set to point to
+// the value char (just past the opening quote) and *out_len to its
+// length; *cursor is advanced past the value. Returns true on success.
 //
 // Does not handle JSON escape sequences in the value — fine for the
-// fields we care about (tag_name + browser_download_url + name).
+// fields we care about (tag_name, name, browser_download_url).
 static bool find_string_field(const char *src, const char **cursor,
                               const char *key,
                               const char **out, int *out_len)
@@ -101,7 +104,6 @@ esp_err_t ota_check_and_update(void)
         ESP_LOGE(TAG, "json missing tag_name");
         return ESP_FAIL;
     }
-
     char tag_buf[80];
     int n = tag_len < (int)sizeof(tag_buf) - 1 ? tag_len : (int)sizeof(tag_buf) - 1;
     memcpy(tag_buf, tag, n);
@@ -113,9 +115,68 @@ esp_err_t ota_check_and_update(void)
 
     if (strcmp(tag_buf, expected) == 0) {
         ESP_LOGI(TAG, "already current (%s)", tag_buf);
-    } else {
-        ESP_LOGI(TAG, "update available: running %s, release %s",
-                 expected, tag_buf);
+        return ESP_OK;
     }
-    return ESP_OK;
+    ESP_LOGI(TAG, "update available: running %s, release %s", expected, tag_buf);
+
+    // Walk the assets array looking for an entry whose "name" equals
+    // CONFIG_OTA_ASSET_NAME, then capture its browser_download_url.
+    char asset_url[256] = {0};
+    const char *name_ptr;
+    int name_len;
+    while (find_string_field(s_json, &cursor, "name", &name_ptr, &name_len)) {
+        bool match = (name_len == (int)strlen(CONFIG_OTA_ASSET_NAME))
+                  && (memcmp(name_ptr, CONFIG_OTA_ASSET_NAME, name_len) == 0);
+        if (match) {
+            const char *url_ptr;
+            int url_len;
+            if (find_string_field(s_json, &cursor, "browser_download_url",
+                                  &url_ptr, &url_len)
+                && url_len < (int)sizeof(asset_url)) {
+                memcpy(asset_url, url_ptr, url_len);
+                asset_url[url_len] = 0;
+                break;
+            }
+        }
+    }
+
+    if (asset_url[0] == 0) {
+        ESP_LOGW(TAG, "release has no '%s' asset; aborting", CONFIG_OTA_ASSET_NAME);
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "downloading %s", asset_url);
+
+    esp_http_client_config_t ota_http = {
+        .url = asset_url,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = 30000,
+        .keep_alive_enable = true,
+    };
+    esp_https_ota_config_t hcfg = {
+        .http_config = &ota_http,
+    };
+    err = esp_https_ota(&hcfg);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "OTA ok, rebooting");
+        esp_restart();
+    }
+    ESP_LOGE(TAG, "esp_https_ota: %s", esp_err_to_name(err));
+    return err;
+}
+
+void ota_mark_valid(void)
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t state;
+    if (esp_ota_get_state_partition(running, &state) != ESP_OK) {
+        ESP_LOGW(TAG, "could not read OTA state");
+        return;
+    }
+    if (state == ESP_OTA_IMG_PENDING_VERIFY) {
+        if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+            ESP_LOGI(TAG, "marked app valid; rollback cancelled");
+        }
+    } else {
+        ESP_LOGI(TAG, "no rollback to cancel (state=%d)", (int)state);
+    }
 }

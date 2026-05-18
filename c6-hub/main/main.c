@@ -128,8 +128,15 @@ void app_main(void)
 
     ble_init();
 
+    TickType_t boot_tick = xTaskGetTickCount();
+    bool marked = false;
     uint32_t tick = 0;
     while (true) {
+        if (!marked && (xTaskGetTickCount() - boot_tick)
+                       >= pdMS_TO_TICKS(CONFIG_OTA_MARK_VALID_DELAY_MS)) {
+            ota_mark_valid();
+            marked = true;
+        }
         ESP_LOGI(TAG, "alive tick=%" PRIu32, tick++);
         vTaskDelay(pdMS_TO_TICKS(10000));
     }
