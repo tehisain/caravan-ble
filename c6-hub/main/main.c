@@ -12,6 +12,9 @@
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
+#include "wifi_manager.h"
+#include "ota_handler.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "caravan";
 static const char *BLE = "ble";
@@ -106,7 +109,7 @@ static void ble_init(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "boot");
+    ESP_LOGI(TAG, "boot (this build was delivered via OTA)");
     log_chip_info();
 
     esp_err_t err = nvs_flash_init();
@@ -115,10 +118,25 @@ void app_main(void)
         nvs_flash_init();
     }
 
+    if (wifi_manager_init() == ESP_OK) {
+        if (wifi_manager_wait_connected(CONFIG_OTA_WIFI_TIMEOUT_MS) == ESP_OK) {
+            ota_check_and_update();
+        } else {
+            ESP_LOGW(TAG, "wifi timeout, continuing without it");
+        }
+    }
+
     ble_init();
 
+    TickType_t boot_tick = xTaskGetTickCount();
+    bool marked = false;
     uint32_t tick = 0;
     while (true) {
+        if (!marked && (xTaskGetTickCount() - boot_tick)
+                       >= pdMS_TO_TICKS(CONFIG_OTA_MARK_VALID_DELAY_MS)) {
+            ota_mark_valid();
+            marked = true;
+        }
         ESP_LOGI(TAG, "alive tick=%" PRIu32, tick++);
         vTaskDelay(pdMS_TO_TICKS(10000));
     }

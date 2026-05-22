@@ -44,7 +44,7 @@ GitHub release check + `esp_https_ota` invocation.
   2. Parse JSON (`cJSON`); locate the asset whose `name` equals `CONFIG_OTA_ASSET_NAME` (default `c6-hub.bin`) and read its `browser_download_url`.
   3. Compare `tag_name` against `"fw-" + esp_app_get_description()->version`.
   4. If different, run `esp_https_ota(&config)` against the asset URL. On success, `esp_restart()` (never returns).
-- DigiCert root CA bundled at `c6-hub/main/certs/digicert_root.pem` (GitHub's TLS issuer).
+- HTTPS validated against ESP-IDF's bundled CA roots (`CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y`). Survives GitHub changing TLS issuers without a firmware change.
 
 ### Boot flow
 
@@ -93,7 +93,6 @@ c6-hub/main/
   wifi_manager.{c,h}          new
   ota_handler.{c,h}           new
   Kconfig.projbuild           new — CONFIG_OTA_WIFI_SSID/PASSWORD + repo path + asset name
-  certs/digicert_root.pem     new — bundled root CA
   main.c                      modified — pre-BLE wifi+ota sequence + mark_valid timer
 
 c6-hub/sdkconfig.defaults     modified — rollback, esp_https_ota, mbedTLS CA bundle off

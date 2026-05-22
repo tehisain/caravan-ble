@@ -29,7 +29,12 @@ case "${1:-build}" in
     idf.py menuconfig
     ;;
   build|"")
-    idf.py set-target esp32c6
+    # Target is locked via CONFIG_IDF_TARGET in sdkconfig.defaults.
+    # Do NOT call `idf.py set-target` here — it wipes sdkconfig (and any
+    # menuconfig-set credentials) and regenerates from defaults.
+    if [ ! -f sdkconfig ]; then
+      idf.py set-target esp32c6
+    fi
     idf.py build
     ;;
   *)

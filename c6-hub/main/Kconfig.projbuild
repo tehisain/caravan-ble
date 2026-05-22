@@ -1,0 +1,31 @@
+menu "Caravan OTA"
+
+config OTA_WIFI_SSID
+    string "Wi-Fi SSID for OTA backhaul"
+    default ""
+    help
+      SSID of the caravan AP. Leave empty to disable Wi-Fi/OTA entirely.
+
+config OTA_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default ""
+
+config OTA_GITHUB_REPO
+    string "GitHub repo slug"
+    default "tehisain/caravan-ble"
+    help
+      The repo whose /releases/latest is polled. Format: user/repo.
+
+config OTA_ASSET_NAME
+    string "Release asset filename"
+    default "c6-hub.bin"
+
+config OTA_WIFI_TIMEOUT_MS
+    int "Wi-Fi connect timeout (ms)"
+    default 30000
+
+config OTA_MARK_VALID_DELAY_MS
+    int "Delay before marking app valid (ms)"
+    default 60000
+
+endmenu
