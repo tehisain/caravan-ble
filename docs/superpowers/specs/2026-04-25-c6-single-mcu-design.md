@@ -242,16 +242,24 @@ mention but that ended up mattering:
   build**, which silently wiped `sdkconfig` (including menuconfig-set
   Wi-Fi credentials). Now only invoked when `sdkconfig` is absent.
 
-### Version-comparison foot-gun (open)
+### Version-comparison anchor (resolved 2026-05-22)
 
-The OTA design uses `tag != "fw-" + running` (string inequality). This
-allows silent **downgrades** to whichever release GitHub's `/latest`
-endpoint currently names. Observed during rollback testing: deleting
-the broken release briefly left no release marked latest, GitHub fell
-back to the oldest tag, and the chip downgraded itself into a
-known-broken older version before propagation caught up.
+The original OTA design used `tag != "fw-" + running` (string
+inequality). This allowed silent **downgrades** to whichever release
+GitHub's `/latest` endpoint currently named, observed during rollback
+testing when /latest briefly fell back to an older release.
 
-A follow-up spec (`2026-05-22-ota-version-compare-design.md`, planned)
-will replace inequality with a monotonic anchor — likely the release's
-`published_at` ISO timestamp, cached in NVS, so the chip only OTAs
-forward in time.
+Resolution: `ota_handler.c` now parses each release's `published_at`
+ISO8601 timestamp, stores it in NVS (ns=`ota`, key=`last_pub_ts`) when
+the chip observes that the running build matches /latest, and refuses
+to OTA into anything whose `published_at` is ≤ the stored anchor. The
+anchor only moves forward in time. First-boot behaviour (anchor=0) is
+identical to the old design — any release is accepted, so chips
+freshly flashed via esptool will pick up the latest release on first
+Wi-Fi connection.
+
+Also collapsed: `PROJECT_VER` was being polluted by historical `fw-*`
+release tags (git describe falls back to nearest tag). The 10 test
+tags from OTA bring-up have been deleted; future tag-pollution is
+unlikely because production tags only appear when `release.sh` cuts
+them, and there will be relatively few.
