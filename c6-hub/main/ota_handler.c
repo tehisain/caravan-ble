@@ -2,6 +2,8 @@
 
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
+#include <inttypes.h>
 #include "esp_log.h"
 #include "esp_app_desc.h"
 #include "esp_http_client.h"
@@ -9,11 +11,15 @@
 #include "esp_https_ota.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "ota";
 
-#define API_URL_FMT "https://api.github.com/repos/%s/releases/latest"
+#define API_URL_FMT       "https://api.github.com/repos/%s/releases/latest"
+#define NVS_NS            "ota"
+#define NVS_KEY_LAST_TS   "last_pub_ts"
 
 static char  s_json[6144];
 static int   s_json_len;
@@ -52,7 +58,8 @@ static esp_err_t on_redirect_event(esp_http_client_event_t *evt)
 // length; *cursor is advanced past the value. Returns true on success.
 //
 // Does not handle JSON escape sequences in the value — fine for the
-// fields we care about (tag_name, name, browser_download_url).
+// fields we care about (tag_name, name, browser_download_url,
+// published_at).
 static bool find_string_field(const char *src, const char **cursor,
                               const char *key,
                               const char **out, int *out_len)
@@ -75,6 +82,49 @@ static bool find_string_field(const char *src, const char **cursor,
     *out_len = (int)(p - start);
     *cursor = p + 1;
     return true;
+}
+
+// Parse "YYYY-MM-DDTHH:MM:SSZ" into a unix timestamp. Returns 0 on
+// failure (which propagates as "couldn't anchor on this", caller skips).
+static int64_t parse_iso8601_utc(const char *s, int len)
+{
+    if (len < 20) return 0;
+    char buf[24];
+    if (len >= (int)sizeof(buf)) return 0;
+    memcpy(buf, s, len);
+    buf[len] = 0;
+
+    struct tm tm = {0};
+    if (sscanf(buf, "%d-%d-%dT%d:%d:%dZ",
+               &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
+               &tm.tm_hour, &tm.tm_min, &tm.tm_sec) != 6) {
+        return 0;
+    }
+    tm.tm_year -= 1900;
+    tm.tm_mon  -= 1;
+    // timegm() interprets tm as UTC. ESP-IDF provides it.
+    time_t t = timegm(&tm);
+    return (t == (time_t)-1) ? 0 : (int64_t)t;
+}
+
+static int64_t nvs_get_last_pub_ts(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return 0;
+    int64_t ts = 0;
+    nvs_get_i64(h, NVS_KEY_LAST_TS, &ts);
+    nvs_close(h);
+    return ts;
+}
+
+static void nvs_set_last_pub_ts(int64_t ts)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    if (nvs_set_i64(h, NVS_KEY_LAST_TS, ts) == ESP_OK) {
+        nvs_commit(h);
+    }
+    nvs_close(h);
 }
 
 esp_err_t ota_check_and_update(void)
@@ -123,15 +173,48 @@ esp_err_t ota_check_and_update(void)
     memcpy(tag_buf, tag, n);
     tag_buf[n] = 0;
 
+    // The API returns published_at as an ISO8601 UTC string, sometimes
+    // earlier in the document than tag_name and sometimes later. Search
+    // from the start of the JSON to avoid order assumptions.
+    const char *zero_cursor = NULL;
+    const char *pub;
+    int pub_len;
+    int64_t remote_ts = 0;
+    if (find_string_field(s_json, &zero_cursor, "published_at", &pub, &pub_len)) {
+        remote_ts = parse_iso8601_utc(pub, pub_len);
+    }
+    if (remote_ts == 0) {
+        ESP_LOGW(TAG, "could not parse published_at; refusing to update without an anchor");
+        return ESP_FAIL;
+    }
+
     const esp_app_desc_t *desc = esp_app_get_description();
     char expected[80];
     snprintf(expected, sizeof(expected), "fw-%s", desc->version);
+    int64_t local_ts = nvs_get_last_pub_ts();
 
     if (strcmp(tag_buf, expected) == 0) {
-        ESP_LOGI(TAG, "already current (%s)", tag_buf);
+        ESP_LOGI(TAG, "already current (%s, pub_ts=%" PRId64 ")", tag_buf, remote_ts);
+        // The currently-running build is what the server reports as
+        // latest — anchor on its timestamp so future downgrades are
+        // refused even if /latest temporarily points elsewhere.
+        if (local_ts != remote_ts) {
+            nvs_set_last_pub_ts(remote_ts);
+            ESP_LOGI(TAG, "anchor updated: %" PRId64 " -> %" PRId64, local_ts, remote_ts);
+        }
         return ESP_OK;
     }
-    ESP_LOGI(TAG, "update available: running %s, release %s", expected, tag_buf);
+
+    if (remote_ts <= local_ts) {
+        ESP_LOGW(TAG, "refusing downgrade: running %s anchored %" PRId64
+                     ", remote %s pub_ts=%" PRId64,
+                 expected, local_ts, tag_buf, remote_ts);
+        return ESP_OK;
+    }
+
+    ESP_LOGI(TAG, "update available: running %s (anchor %" PRId64
+                 "), release %s (pub_ts %" PRId64 ")",
+             expected, local_ts, tag_buf, remote_ts);
 
     // Walk the assets array looking for an entry whose "name" equals
     // CONFIG_OTA_ASSET_NAME, then capture its browser_download_url.
