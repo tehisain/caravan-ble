@@ -182,3 +182,76 @@ The original "1% duty cycle, ~8 mA OFFGRID average" was unrealistic for a Thread
 - Detection circuit wiring (PC817 optos, HLK-PM01, voltage divider — unchanged).
 - T-Encoder Pro firmware development (same display, same UART protocol with the buzzer addition).
 - Power Queen BLE protocol porting (same BLE protocol).
+
+## Implementation Findings (2026-05-22 update)
+
+Captured below are deltas discovered during the OTA bring-up. Treat the
+rest of the spec as the original design and these as the actual state.
+
+### Hardware on hand
+
+- The "16 MB ESP32-C6 SuperMini" we ordered turned up with a **Boya 16 MB
+  embedded flash** (vendor ID `0x68`, device `0x4018`). esptool detected
+  the chip's Boya driver was not enabled by default and printed a soft
+  warning. Final sdkconfig has `CONFIG_SPI_FLASH_SUPPORT_BOYA_CHIP=y`.
+- The original 4 MB ESP32-C6FH4 bring-up board has been retired in
+  favor of the 16 MB SuperMini for the in-caravan install. Both boards
+  share the same app, only the partition table differs.
+
+### Additional BLE devices discovered on-site
+
+A passive BLE scan from inside the caravan turned up two devices the
+spec didn't anticipate:
+
+| MAC | Name | Source | Implication |
+|---|---|---|---|
+| `da:02:0f:ca:6d:1b` | `SmartSolar HQ2216XZQ42` | Victron MPPT | Provides solar telemetry over BLE in addition to VE.Direct UART |
+| `e9:3c:6f:d4:a6:08` | `BSC IP65 12/25 HQ2427EXUK7` | Victron IP65 shore charger | **Only** telemetry path — no VE.Direct port on the IP65 |
+
+Both broadcast Victron's "Instant Readout" in manufacturer data (no
+GATT connection required; encrypted with a per-device key from
+VictronConnect). Consequences:
+
+- VE.Direct cable build moves from "required" to "optional, redundant"
+  if BLE turns out to be sufficient for MPPT readings.
+- A new BLE module will need access to all three power-related
+  advertisers (Power Queen BMS + SmartSolar + IP65).
+
+### OTA implementation realities
+
+The OTA-self-update spec at `2026-05-16-ota-self-update-design.md`
+captures the design. Two implementation realities the design doc didn't
+mention but that ended up mattering:
+
+- **`esp_https_ota` cannot follow GitHub's release-asset 302 itself.**
+  The download URL `github.com/.../releases/download/<tag>/<asset>`
+  302-redirects to a signed `release-assets.githubusercontent.com` URL.
+  The OTA library's connection setup doesn't handle that hop reliably,
+  so `ota_handler.c` does a manual HEAD via `esp_http_client`, captures
+  `Location` via the HTTP event callback, and hands the resolved URL to
+  `esp_https_ota`. URL buffer is sized 2 KiB; the resolved URL is
+  ~900–1500 bytes (long JWT + Azure SAS params).
+- **Default HTTP buffers (512 bytes) overflow on the GET.** The
+  request line alone exceeds 512 bytes once the signed URL is in it.
+  Final sdkconfig uses `buffer_size = 4096`, `buffer_size_tx = 4096` in
+  the OTA `esp_http_client_config_t`.
+- **Default main-task stack (3.5 KB) overflows during mbedTLS
+  handshake** with `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y`.
+  Bumped to `CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288`.
+- **`build.sh` originally called `idf.py set-target esp32c6` on every
+  build**, which silently wiped `sdkconfig` (including menuconfig-set
+  Wi-Fi credentials). Now only invoked when `sdkconfig` is absent.
+
+### Version-comparison foot-gun (open)
+
+The OTA design uses `tag != "fw-" + running` (string inequality). This
+allows silent **downgrades** to whichever release GitHub's `/latest`
+endpoint currently names. Observed during rollback testing: deleting
+the broken release briefly left no release marked latest, GitHub fell
+back to the oldest tag, and the chip downgraded itself into a
+known-broken older version before propagation caught up.
+
+A follow-up spec (`2026-05-22-ota-version-compare-design.md`, planned)
+will replace inequality with a monotonic anchor — likely the release's
+`published_at` ISO timestamp, cached in NVS, so the chip only OTAs
+forward in time.
