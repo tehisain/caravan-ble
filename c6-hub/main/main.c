@@ -11,6 +11,7 @@
 #include "wifi_manager.h"
 #include "ota_handler.h"
 #include "power_monitor.h"
+#include "power_state.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "caravan";
@@ -61,6 +62,7 @@ void app_main(void)
     }
 
     power_monitor_init();
+    power_state_init();
 
     TickType_t boot_tick = xTaskGetTickCount();
     bool marked = false;
