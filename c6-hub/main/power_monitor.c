@@ -8,12 +8,15 @@
 #include "esp_timer.h"
 #include "sdkconfig.h"
 
+#include "freertos/semphr.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
 #include "host/ble_gap.h"
+#include "host/ble_gatt.h"
 
 #include "victron_iadv.h"
+#include "powerqueen_bms.h"
 
 static const char *TAG = "pm";
 
@@ -34,6 +37,16 @@ static uint8_t s_ip65_key[16];
 static bool    s_ip65_enabled;
 
 static uint8_t s_bms_mac[6];
+
+// BMS GATT-cycle state. Updated by GAP/GATT events on the NimBLE host
+// task; bms_poll_task waits on s_bms_done between cycles.
+#define PQ_SVC_UUID16  0xFFE0
+#define PQ_CHR_UUID16  0xFFE1
+
+static SemaphoreHandle_t s_bms_done;
+static uint16_t          s_bms_conn_handle = 0xFFFF;
+static uint16_t          s_bms_chr_val_handle;
+static bool              s_bms_ok;
 
 // Parse "AA:BB:CC:DD:EE:FF" into 6 bytes (MSB-first). Returns false on bad input.
 static bool parse_mac(const char *s, uint8_t out[6])
@@ -110,47 +123,178 @@ static void log_charger_if_changed(const charger_reading_t *prev, const charger_
     }
 }
 
+// Forward declarations for the BMS GATT-discovery callbacks.
+static int bms_on_disc_svc(uint16_t conn_handle, const struct ble_gatt_error *error,
+                           const struct ble_gatt_svc *svc, void *arg);
+static int bms_on_disc_chr(uint16_t conn_handle, const struct ble_gatt_error *error,
+                           const struct ble_gatt_chr *chr, void *arg);
+static int bms_on_subscribe(uint16_t conn_handle, const struct ble_gatt_error *error,
+                            struct ble_gatt_attr *attr, void *arg);
+
+static void bms_finish(bool ok)
+{
+    s_bms_ok = ok;
+    if (s_bms_conn_handle != 0xFFFF) {
+        ble_gap_terminate(s_bms_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+    }
+    xSemaphoreGive(s_bms_done);
+}
+
+static int bms_on_disc_svc(uint16_t conn_handle, const struct ble_gatt_error *error,
+                           const struct ble_gatt_svc *svc, void *arg)
+{
+    if (error->status == BLE_HS_EDONE) return 0;
+    if (error->status != 0 || svc == NULL) {
+        ESP_LOGW(TAG, "bms svc disc err=%d", error->status);
+        bms_finish(false);
+        return 0;
+    }
+    ble_uuid16_t chr_uuid = BLE_UUID16_INIT(PQ_CHR_UUID16);
+    int rc = ble_gattc_disc_chrs_by_uuid(conn_handle,
+                                         svc->start_handle, svc->end_handle,
+                                         &chr_uuid.u, bms_on_disc_chr, NULL);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "bms disc_chrs rc=%d", rc);
+        bms_finish(false);
+    }
+    return 0;
+}
+
+static int bms_on_disc_chr(uint16_t conn_handle, const struct ble_gatt_error *error,
+                           const struct ble_gatt_chr *chr, void *arg)
+{
+    if (error->status == BLE_HS_EDONE) return 0;
+    if (error->status != 0 || chr == NULL) {
+        ESP_LOGW(TAG, "bms chr disc err=%d", error->status);
+        bms_finish(false);
+        return 0;
+    }
+    s_bms_chr_val_handle = chr->val_handle;
+    // The CCC descriptor sits at val_handle+1 by convention. Write 0x0001
+    // to enable notifications.
+    uint8_t notify_on[2] = {0x01, 0x00};
+    int rc = ble_gattc_write_flat(conn_handle, chr->val_handle + 1,
+                                  notify_on, sizeof(notify_on),
+                                  bms_on_subscribe, NULL);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "bms ccc write rc=%d", rc);
+        bms_finish(false);
+    }
+    return 0;
+}
+
+static int bms_on_subscribe(uint16_t conn_handle, const struct ble_gatt_error *error,
+                            struct ble_gatt_attr *attr, void *arg)
+{
+    if (error->status != 0) {
+        ESP_LOGW(TAG, "bms subscribe err=%d", error->status);
+        bms_finish(false);
+        return 0;
+    }
+    uint8_t req[PQ_BMS_REQ_LEN];
+    pq_bms_build_get_battery_info(req);
+    int rc = ble_gattc_write_flat(conn_handle, s_bms_chr_val_handle,
+                                  req, sizeof(req), NULL, NULL);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "bms write_flat rc=%d", rc);
+        bms_finish(false);
+    }
+    return 0;
+}
+
 static int gap_event_cb(struct ble_gap_event *event, void *arg)
 {
-    if (event->type != BLE_GAP_EVENT_DISC) return 0;
+    switch (event->type) {
+    case BLE_GAP_EVENT_CONNECT:
+        if (event->connect.status == 0) {
+            s_bms_conn_handle = event->connect.conn_handle;
+            ble_uuid16_t svc_uuid = BLE_UUID16_INIT(PQ_SVC_UUID16);
+            int rc = ble_gattc_disc_svc_by_uuid(s_bms_conn_handle, &svc_uuid.u,
+                                                bms_on_disc_svc, NULL);
+            if (rc != 0) {
+                ESP_LOGW(TAG, "bms disc_svc rc=%d", rc);
+                bms_finish(false);
+            }
+        } else {
+            ESP_LOGW(TAG, "bms connect failed: %d", event->connect.status);
+            bms_finish(false);
+        }
+        return 0;
 
-    const uint8_t *addr = event->disc.addr.val;
-    const uint8_t *data = event->disc.data;
-    size_t data_len     = event->disc.length_data;
+    case BLE_GAP_EVENT_DISCONNECT:
+        s_bms_conn_handle = 0xFFFF;
+        return 0;
 
-    bool is_solar = s_solar_enabled && mac_match(addr, s_solar_mac);
-    bool is_ip65  = s_ip65_enabled  && mac_match(addr, s_ip65_mac);
-    if (!is_solar && !is_ip65) return 0;
+    case BLE_GAP_EVENT_NOTIFY_RX: {
+        const struct os_mbuf *om = event->notify_rx.om;
+        size_t total = OS_MBUF_PKTLEN(om);
+        uint8_t resp[160];
+        if (total > sizeof(resp)) total = sizeof(resp);
+        if (os_mbuf_copydata(om, 0, total, resp) != 0) return 0;
 
-    const uint8_t *mfg;
-    size_t mfg_len;
-    if (!find_mfg_data(data, data_len, VICTRON_MFG_ID, &mfg, &mfg_len)) {
+        battery_reading_t b;
+        if (pq_bms_decode_response(resp, total, &b)) {
+            b.valid = true;
+            b.last_seen_ts_ms = now_ms();
+            portENTER_CRITICAL(&s_lock);
+            bool changed = !s_battery.valid || s_battery.state != b.state;
+            s_battery = b;
+            portEXIT_CRITICAL(&s_lock);
+            if (changed) {
+                ESP_LOGI(TAG, "bms v=%.3f i=%.3f SoC=%u SoH=%u state=%u",
+                         b.terminal_voltage_v, b.current_a,
+                         b.soc_pct, b.soh_pct, b.state);
+            }
+            bms_finish(true);
+        } else {
+            ESP_LOGW(TAG, "bms frame parse failed (%u bytes)", (unsigned)total);
+            bms_finish(false);
+        }
         return 0;
     }
 
-    solar_reading_t tmp_solar = {0};
-    charger_reading_t tmp_charger = {0};
-    const uint8_t *key = is_solar ? s_solar_key : s_ip65_key;
-    viadv_kind_t kind = viadv_decode(mfg, mfg_len, key, &tmp_solar, &tmp_charger);
+    case BLE_GAP_EVENT_DISC: {
+        const uint8_t *addr = event->disc.addr.val;
+        const uint8_t *data = event->disc.data;
+        size_t data_len     = event->disc.length_data;
 
-    if (kind == VIADV_KIND_SOLAR && is_solar) {
-        tmp_solar.valid = true;
-        tmp_solar.last_seen_ts_ms = now_ms();
-        portENTER_CRITICAL(&s_lock);
-        solar_reading_t prev = s_solar;
-        s_solar = tmp_solar;
-        portEXIT_CRITICAL(&s_lock);
-        log_solar_if_changed(&prev, &tmp_solar);
-    } else if (kind == VIADV_KIND_CHARGER && is_ip65) {
-        tmp_charger.valid = true;
-        tmp_charger.last_seen_ts_ms = now_ms();
-        portENTER_CRITICAL(&s_lock);
-        charger_reading_t prev = s_charger;
-        s_charger = tmp_charger;
-        portEXIT_CRITICAL(&s_lock);
-        log_charger_if_changed(&prev, &tmp_charger);
+        bool is_solar = s_solar_enabled && mac_match(addr, s_solar_mac);
+        bool is_ip65  = s_ip65_enabled  && mac_match(addr, s_ip65_mac);
+        if (!is_solar && !is_ip65) return 0;
+
+        const uint8_t *mfg;
+        size_t mfg_len;
+        if (!find_mfg_data(data, data_len, VICTRON_MFG_ID, &mfg, &mfg_len)) {
+            return 0;
+        }
+
+        solar_reading_t tmp_solar = {0};
+        charger_reading_t tmp_charger = {0};
+        const uint8_t *key = is_solar ? s_solar_key : s_ip65_key;
+        viadv_kind_t kind = viadv_decode(mfg, mfg_len, key, &tmp_solar, &tmp_charger);
+
+        if (kind == VIADV_KIND_SOLAR && is_solar) {
+            tmp_solar.valid = true;
+            tmp_solar.last_seen_ts_ms = now_ms();
+            portENTER_CRITICAL(&s_lock);
+            solar_reading_t prev = s_solar;
+            s_solar = tmp_solar;
+            portEXIT_CRITICAL(&s_lock);
+            log_solar_if_changed(&prev, &tmp_solar);
+        } else if (kind == VIADV_KIND_CHARGER && is_ip65) {
+            tmp_charger.valid = true;
+            tmp_charger.last_seen_ts_ms = now_ms();
+            portENTER_CRITICAL(&s_lock);
+            charger_reading_t prev = s_charger;
+            s_charger = tmp_charger;
+            portEXIT_CRITICAL(&s_lock);
+            log_charger_if_changed(&prev, &tmp_charger);
+        }
+        return 0;
     }
-    return 0;
+    default:
+        return 0;
+    }
 }
 
 static void on_ble_sync(void)
@@ -187,6 +331,57 @@ static void ble_host_task(void *param)
     nimble_port_freertos_deinit();
 }
 
+static void resume_scan(void)
+{
+    uint8_t own_addr_type;
+    if (ble_hs_id_infer_auto(0, &own_addr_type) != 0) return;
+    struct ble_gap_disc_params dp = {
+        .passive = 1,
+        .filter_duplicates = 0,
+    };
+    ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &dp, gap_event_cb, NULL);
+}
+
+static void bms_poll_task(void *arg)
+{
+    // Wait a few seconds after boot so Wi-Fi + OTA + the first Victron
+    // sample have all settled.
+    vTaskDelay(pdMS_TO_TICKS(5000));
+
+    ble_addr_t target = {.type = BLE_ADDR_PUBLIC};
+    for (int i = 0; i < 6; i++) {
+        target.val[5 - i] = s_bms_mac[i];   // NimBLE wants LSB-first
+    }
+
+    for (;;) {
+        // Pause the discovery scan; ble_gap_connect can race with scan
+        // on some controllers.
+        ble_gap_disc_cancel();
+        vTaskDelay(pdMS_TO_TICKS(50));
+
+        s_bms_ok = false;
+        s_bms_conn_handle = 0xFFFF;
+        xSemaphoreTake(s_bms_done, 0);    // drain any stale token
+
+        int rc = ble_gap_connect(BLE_OWN_ADDR_PUBLIC, &target,
+                                 5000 /*ms*/, NULL, gap_event_cb, NULL);
+        if (rc != 0) {
+            ESP_LOGW(TAG, "bms connect kick rc=%d", rc);
+        } else {
+            if (xSemaphoreTake(s_bms_done, pdMS_TO_TICKS(6000)) != pdTRUE) {
+                ESP_LOGW(TAG, "bms cycle timed out");
+                if (s_bms_conn_handle != 0xFFFF) {
+                    ble_gap_terminate(s_bms_conn_handle,
+                                      BLE_ERR_REM_USER_CONN_TERM);
+                }
+            }
+        }
+
+        resume_scan();
+        vTaskDelay(pdMS_TO_TICKS(CONFIG_POWER_BMS_POLL_INTERVAL_MS));
+    }
+}
+
 esp_err_t power_monitor_init(void)
 {
     s_solar_enabled = parse_mac(CONFIG_POWER_VICTRON_SOLAR_MAC, s_solar_mac)
@@ -209,6 +404,13 @@ esp_err_t power_monitor_init(void)
     }
     ble_hs_cfg.sync_cb = on_ble_sync;
     nimble_port_freertos_init(ble_host_task);
+
+    s_bms_done = xSemaphoreCreateBinary();
+    if (!s_bms_done) {
+        ESP_LOGE(TAG, "could not create bms semaphore");
+        return ESP_ERR_NO_MEM;
+    }
+    xTaskCreate(bms_poll_task, "bms_poll", 6144, NULL, 5, NULL);
     return ESP_OK;
 }
 
