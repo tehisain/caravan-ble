@@ -29,3 +29,31 @@ config OTA_MARK_VALID_DELAY_MS
     default 60000
 
 endmenu
+
+menu "Caravan Power"
+
+config POWER_BMS_MAC
+    string "PowerQueen BMS MAC (AA:BB:CC:DD:EE:FF)"
+    default "C8:47:80:10:C2:DE"
+
+config POWER_VICTRON_SOLAR_MAC
+    string "Victron SmartSolar MAC"
+    default "DA:02:0F:CA:6D:1B"
+
+config POWER_VICTRON_SOLAR_KEY
+    string "Victron SmartSolar Instant-Readout key (32 hex chars)"
+    default ""
+
+config POWER_VICTRON_IP65_MAC
+    string "Victron IP65 charger MAC"
+    default "E9:3C:6F:D4:A6:08"
+
+config POWER_VICTRON_IP65_KEY
+    string "Victron IP65 Instant-Readout key (32 hex chars)"
+    default ""
+
+config POWER_BMS_POLL_INTERVAL_MS
+    int "BMS poll interval (ms)"
+    default 30000
+
+endmenu

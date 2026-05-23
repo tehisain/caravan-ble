@@ -13,9 +13,12 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # USB-Serial-JTAG console — the SuperMini has no external UART bridge
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
-# BLE — NimBLE observer for bring-up scan
+# BLE — NimBLE central (BMS) + observer (Victron scan) simultaneously
 CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=2
 
 # OTA — rollback + bundled CA roots
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
