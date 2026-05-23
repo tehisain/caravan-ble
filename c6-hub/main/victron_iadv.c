@@ -6,9 +6,22 @@
 // of hardware acceleration on the C6.
 #include "aes/esp_aes.h"
 
-// Public Victron model IDs we handle.
-#define MODEL_SOLAR_CHARGER 0xA043
-#define MODEL_AC_CHARGER    0xA248
+// Victron "Extra Manufacturer Data Record" header, learned by dumping
+// real frames from a SmartSolar MPPT 75/15 and a Blue Smart IP65
+// charger and matching mfg[7] against the first key byte:
+//
+//   offset 0  prefix              0x10
+//   offset 1  record_kind         0x02 = SolarCharger, 0x00 = AcCharger
+//                                 (observed; not yet generalized — dispatch on this)
+//   offset 2-3  model_id (LE)     freeform — we don't trust it for dispatch
+//   offset 4  read_state          observed 0x01
+//   offset 5-6  nonce (LE)        AES-CTR initial counter low bytes
+//   offset 7  first byte of key   sanity-check against key[0]
+//   offset 8+  ciphertext
+#define VIADV_HEADER_LEN  8
+
+#define VIADV_KIND_BYTE_SOLAR   0x02
+#define VIADV_KIND_BYTE_CHARGER 0x00
 
 static int hex_nibble(char c)
 {
@@ -40,25 +53,23 @@ static int16_t rd_i16_le(const uint8_t *p) {
 // Decrypt the ciphertext portion of a Victron manufacturer-data frame
 // into `plain`. Returns plaintext length, or 0 on framing error.
 //
-// AES-128-CTR with:
-//   key   = caller's 16-byte key
-//   nonce = iv (2 bytes from frame) followed by 14 zero bytes
+// AES-128-CTR with key from caller, nonce = (mfg[5], mfg[6], 14 × 0x00).
 static size_t viadv_decrypt(const uint8_t *mfg, size_t len,
                             const uint8_t key[16],
                             uint8_t plain[16])
 {
-    if (len < 8) return 0;
-    if (mfg[0] != 0x10) return 0;           // not an "Extra Manufacturer Data Record"
-    if (mfg[6] != key[0]) return 0;         // first-byte-of-key sanity check
+    if (len < VIADV_HEADER_LEN + 1) return 0;
+    if (mfg[0] != 0x10) return 0;
+    if (mfg[7] != key[0]) return 0;             // first-byte-of-key sanity check
 
     uint8_t nonce[16] = {0};
-    nonce[0] = mfg[4];
-    nonce[1] = mfg[5];
+    nonce[0] = mfg[5];
+    nonce[1] = mfg[6];
 
-    size_t ct_len = len - 7;
+    size_t ct_len = len - VIADV_HEADER_LEN;
     if (ct_len > 16) ct_len = 16;
     uint8_t ct_buf[16];
-    memcpy(ct_buf, mfg + 7, ct_len);
+    memcpy(ct_buf, mfg + VIADV_HEADER_LEN, ct_len);
 
     esp_aes_context aes;
     esp_aes_init(&aes);
@@ -77,6 +88,16 @@ static size_t viadv_decrypt(const uint8_t *mfg, size_t len,
     return ct_len;
 }
 
+// Victron's "no measurement available" sentinel for u16 fields.
+// Observed live: when the IP65 charger is in STORAGE with no real
+// current, it broadcasts 0xFF00. We treat any value with the high
+// byte set (>= 0xFF00 / 6553.5 in 0.1 A units) as unavailable → 0.
+static float u16_to_amps_or_zero(uint16_t raw)
+{
+    if (raw >= 0xFF00) return 0.0f;
+    return raw / 10.0f;
+}
+
 static viadv_kind_t decode_solar(const uint8_t *p, size_t len,
                                  solar_reading_t *out)
 {
@@ -84,8 +105,8 @@ static viadv_kind_t decode_solar(const uint8_t *p, size_t len,
     memset(out, 0, sizeof(*out));
     out->charge_state         = p[0];
     out->battery_voltage_v    = rd_i16_le(p + 2) / 100.0f;
-    out->charging_current_a   = rd_i16_le(p + 4) / 10.0f;
-    out->yield_today_wh       = rd_u16_le(p + 6) * 10;   // 0.01 kWh -> Wh × 10
+    out->charging_current_a   = u16_to_amps_or_zero(rd_u16_le(p + 4));
+    out->yield_today_wh       = rd_u16_le(p + 6) * 10;
     out->solar_power_w        = (int16_t)rd_u16_le(p + 8);
     return VIADV_KIND_SOLAR;
 }
@@ -97,7 +118,7 @@ static viadv_kind_t decode_charger(const uint8_t *p, size_t len,
     memset(out, 0, sizeof(*out));
     out->charge_state       = p[0];
     out->output_voltage_v   = rd_u16_le(p + 2) / 100.0f;
-    out->output_current_a   = rd_u16_le(p + 4) / 10.0f;
+    out->output_current_a   = u16_to_amps_or_zero(rd_u16_le(p + 4));
     return VIADV_KIND_CHARGER;
 }
 
@@ -106,17 +127,16 @@ viadv_kind_t viadv_decode(const uint8_t *mfg, size_t len,
                           solar_reading_t *solar_out,
                           charger_reading_t *charger_out)
 {
-    if (len < 8) return VIADV_KIND_NONE;
-    uint16_t model = rd_u16_le(mfg + 1);
+    if (len < VIADV_HEADER_LEN + 1) return VIADV_KIND_NONE;
 
     uint8_t plain[16];
     size_t plen = viadv_decrypt(mfg, len, key, plain);
     if (plen == 0) return VIADV_KIND_NONE;
 
-    switch (model) {
-        case MODEL_SOLAR_CHARGER:
+    switch (mfg[1]) {
+        case VIADV_KIND_BYTE_SOLAR:
             return decode_solar(plain, plen, solar_out);
-        case MODEL_AC_CHARGER:
+        case VIADV_KIND_BYTE_CHARGER:
             return decode_charger(plain, plen, charger_out);
         default:
             return VIADV_KIND_NONE;

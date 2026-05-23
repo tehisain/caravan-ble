@@ -8,16 +8,12 @@
 #include "esp_mac.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "nimble/nimble_port.h"
-#include "nimble/nimble_port_freertos.h"
-#include "host/ble_hs.h"
-#include "host/util/util.h"
 #include "wifi_manager.h"
 #include "ota_handler.h"
+#include "power_monitor.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "caravan";
-static const char *BLE = "ble";
 
 static void log_chip_info(void)
 {
@@ -45,71 +41,9 @@ static void log_chip_info(void)
              mac[4], mac[5], mac[6], mac[7]);
 }
 
-static int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
-{
-    if (event->type != BLE_GAP_EVENT_DISC) {
-        return 0;
-    }
-    const uint8_t *a = event->disc.addr.val;
-    struct ble_hs_adv_fields f;
-    char name[32] = "(no name)";
-    if (ble_hs_adv_parse_fields(&f, event->disc.data, event->disc.length_data) == 0
-        && f.name_len > 0) {
-        int n = f.name_len < (int)sizeof(name) - 1 ? f.name_len : (int)sizeof(name) - 1;
-        memcpy(name, f.name, n);
-        name[n] = 0;
-    }
-    // ble_addr_t stores the address LSB-first; print MSB-first to match other tools
-    ESP_LOGI(BLE, "%02x:%02x:%02x:%02x:%02x:%02x  rssi=%4d  %s",
-             a[5], a[4], a[3], a[2], a[1], a[0],
-             event->disc.rssi, name);
-    return 0;
-}
-
-static void ble_on_sync(void)
-{
-    uint8_t own_addr_type;
-    int rc = ble_hs_id_infer_auto(0, &own_addr_type);
-    if (rc != 0) {
-        ESP_LOGE(BLE, "infer addr type failed: %d", rc);
-        return;
-    }
-    struct ble_gap_disc_params dp = {
-        .itvl = 0,
-        .window = 0,
-        .filter_policy = 0,
-        .limited = 0,
-        .passive = 1,
-        .filter_duplicates = 1,
-    };
-    rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &dp, ble_gap_event_cb, NULL);
-    if (rc != 0) {
-        ESP_LOGE(BLE, "scan start failed: %d", rc);
-    } else {
-        ESP_LOGI(BLE, "passive scan started (dedup on)");
-    }
-}
-
-static void ble_host_task(void *param)
-{
-    nimble_port_run();
-    nimble_port_freertos_deinit();
-}
-
-static void ble_init(void)
-{
-    esp_err_t err = nimble_port_init();
-    if (err != ESP_OK) {
-        ESP_LOGE(BLE, "nimble_port_init failed: %d", err);
-        return;
-    }
-    ble_hs_cfg.sync_cb = ble_on_sync;
-    nimble_port_freertos_init(ble_host_task);
-}
-
 void app_main(void)
 {
-    ESP_LOGI(TAG, "boot (this build was delivered via OTA)");
+    ESP_LOGI(TAG, "boot");
     log_chip_info();
 
     esp_err_t err = nvs_flash_init();
@@ -126,7 +60,7 @@ void app_main(void)
         }
     }
 
-    ble_init();
+    power_monitor_init();
 
     TickType_t boot_tick = xTaskGetTickCount();
     bool marked = false;
