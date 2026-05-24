@@ -1,7 +1,7 @@
 idf_component_register(
     SRCS "main.c" "wifi_manager.c" "ota_handler.c"
          "powerqueen_bms.c" "victron_iadv.c" "power_monitor.c"
-         "power_state.c"
+         "power_state.c" "alerts.c"
     INCLUDE_DIRS "."
     PRIV_REQUIRES
         bt
